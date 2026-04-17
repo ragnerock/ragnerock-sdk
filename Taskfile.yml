@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+tasks:
+  test-unit:
+    desc: Run unit tests
+    cmds:
+      - ./scripts/run-unit-tests.sh
+    silent: true
+    vars:
+      LOG_LEVEL: '{{ .LOG_LEVEL | default "INFO" }}'
+  test-integration:
+    desc: Run integration tests
+    cmds:
+      - LOG_LEVEL="{{ .LOG_LEVEL }}" ENVIRONMENT="{{ .ENVIRONMENT }}" PROJECT_ID="{{ index .GCP_PROJECTS .ENVIRONMENT }}" ./scripts/run-integration-tests.sh
+    silent: true
+    vars:
+      GCP_PROJECTS:
+        map:
+          local: ragnerock-testing
+          dev: ragnerock-testing
+          manual: ragnerock-testing
+          production: ragnerock-prod
+      ENVIRONMENT: '{{ .ENVIRONMENT | default "local" }}'
+      LOG_LEVEL: '{{ .LOG_LEVEL | default "INFO" }}'
