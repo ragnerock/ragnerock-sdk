@@ -43,39 +43,87 @@ _UPDATE_UNSUPPORTED_TYPES = (Page, Chunk)
 
 
 class _Pending:
-    """Internal staging queue for the unit of work."""
+    """Internal unit-of-work staging queues.
+
+    Attributes:
+        added (list[_Resource]): Resources staged for creation.
+        dirty (list[_Resource]): Persisted resources staged for update.
+        deleted (list[_Resource]): Persisted resources staged for deletion.
+    """
 
     added: list[_Resource]
     dirty: list[_Resource]
     deleted: list[_Resource]
 
     def __init__(self) -> None:
+        """Initialize empty staging queues."""
         self.added = []
         self.dirty = []
         self.deleted = []
 
     def is_empty(self) -> bool:
+        """Report whether every staging queue is empty.
+
+        Returns:
+            bool: ``True`` if there is no staged work, ``False`` otherwise.
+        """
         return not (self.added or self.dirty or self.deleted)
 
     def clear(self) -> None:
+        """Drop every staged resource across all three queues."""
         self.added.clear()
         self.dirty.clear()
         self.deleted.clear()
 
 
 def _as_uuid(value: UUID | str) -> UUID:
+    """Coerce a string identifier to a :class:`~uuid.UUID`.
+
+    Args:
+        value (UUID | str): Either a UUID instance or its string
+            representation.
+
+    Returns:
+        UUID: The equivalent :class:`~uuid.UUID`. Instances are returned
+        unchanged.
+    """
     if isinstance(value, UUID):
         return value
     return UUID(value)
 
 
 def _resource_id(resource: _Resource) -> UUID | None:
+    """Return the server-assigned identity of a resource.
+
+    Every resource except :class:`Annotation` exposes its identity as ``id``.
+    Annotations use ``root_id`` on the wire, so this helper normalizes the
+    lookup for internal code that doesn't care about the distinction.
+
+    Args:
+        resource (_Resource): The resource to inspect.
+
+    Returns:
+        UUID | None: The UUID identity, or ``None`` if the resource is not
+        yet persisted.
+    """
     if isinstance(resource, Annotation):
         return resource.root_id
     return getattr(resource, "id", None)
 
 
 def _copy_fields(target: _Resource, response: Any) -> None:
+    """Overlay fields from a server response onto a resource in place.
+
+    Copies only keys that appear both in ``response`` and in ``target``'s
+    model fields. Silently no-ops for ``None`` or unsupported response shapes
+    so callers don't need to defend against action endpoints that return
+    minimal payloads.
+
+    Args:
+        target (_Resource): The resource to mutate.
+        response (Any): A server response: either a pydantic model (with
+            ``model_dump``) or a plain dict.
+    """
     if response is None:
         return
     if hasattr(response, "model_dump"):
@@ -98,18 +146,47 @@ class Session:
     """
 
     def __init__(self, engine: Engine) -> None:
+        """Bind this session to an engine.
+
+        Args:
+            engine (Engine): The engine whose client and project this session
+                will use. The engine is not connected here; use the session
+                as a context manager or call any read method to trigger
+                authentication.
+        """
         self._engine = engine
         self._pending = _Pending()
 
     # -- context manager -------------------------------------------------------
 
     def __enter__(self) -> Session:
-        """Connect the engine. Auth / project-resolution errors surface here."""
+        """Open the session and force authentication up front.
+
+        Entering the context triggers :meth:`Engine._ensure_connected`, so any
+        credential or project-resolution error surfaces here rather than on
+        the first read inside the block.
+
+        Returns:
+            Session: This session.
+
+        Raises:
+            AuthenticationError: If login fails.
+            NotFoundError: If the configured project does not exist.
+        """
         self._engine._ensure_connected()
         return self
 
     def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
-        """Discard any staged ops. Does NOT auto-commit."""
+        """Discard any uncommitted staged operations on block exit.
+
+        This does not auto-commit. If the caller wanted their writes to land,
+        they must call :meth:`commit` explicitly before exiting the block.
+
+        Args:
+            exc_type (object): Exception class raised in the block, if any.
+            exc_val (object): Exception instance raised in the block, if any.
+            exc_tb (object): Traceback for the raised exception, if any.
+        """
         self._pending.clear()
 
     # -- reads (immediate) -----------------------------------------------------
@@ -121,7 +198,30 @@ class Session:
         id: UUID | str | None = None,
         name: str | None = None,
     ) -> T | None:
-        """Fetch a single resource by ``id=`` or ``name=``."""
+        """Fetch a single resource by id or name.
+
+        Exactly one of ``id`` or ``name`` must be supplied. Not every resource
+        type supports name lookup: :class:`DocumentGroup`, :class:`Chunk`,
+        :class:`Page`, :class:`Annotation`, and :class:`Job` are id-only.
+        :class:`Operator` and :class:`Workflow` support name lookup by
+        listing and matching client-side.
+
+        Args:
+            resource_type (type[T]): The resource class to fetch.
+            id (UUID | str | None): Server-assigned UUID (or its string
+                form) to look up.
+            name (str | None): Human-readable name to look up (where
+                supported).
+
+        Returns:
+            T | None: The resource bound to this session, or ``None`` if
+            nothing matches.
+
+        Raises:
+            ValidationError: If neither (or both) identifiers are supplied,
+                or if the requested lookup mode is unsupported for the type.
+            TypeError: If ``resource_type`` is not a supported resource class.
+        """
         if id is None and name is None:
             raise ValidationError("get() requires either id= or name=")
 
@@ -215,6 +315,26 @@ class Session:
         *,
         _fetch_operator_by_id: Any,
     ) -> T | None:
+        """Look up a resource by name by scanning the list endpoint.
+
+        Used for resource types whose list response is compact (no nested
+        data). After finding a match by name, this fetches the full resource
+        by id so the caller gets hydrated fields.
+
+        Args:
+            resource_type (type[T]): The resource class to search.
+            name (str | None): Name to match exactly.
+            _fetch_operator_by_id (Any): Callable taking a UUID and returning
+                the hydrated response. Passed in so this helper doesn't need
+                to re-dispatch on resource type.
+
+        Returns:
+            T | None: The matched resource bound to this session, or ``None``
+            if no entry has that name.
+
+        Raises:
+            ValidationError: If ``name`` is ``None``.
+        """
         if name is None:
             raise ValidationError("get() requires either id= or name=")
         for item in self.list(resource_type).all():
@@ -230,7 +350,34 @@ class Session:
         return None
 
     def list(self, resource_type: type[T], **filters: Any) -> PaginatedIterator[T]:
-        """List resources, optionally filtered."""
+        """List resources of a given type, filtered by keyword args.
+
+        Returns a lazy iterator: pages are fetched only as items are
+        consumed. Required filters vary by resource:
+
+        - ``Chunk`` / ``Page``: must pass ``document_id=``.
+        - ``Annotation``: must pass one of ``document_id=``, ``chunk_id=``,
+          or ``operator_id=``. ``operator_id=`` additionally accepts
+          ``hydrated=True`` to fetch annotations with operator metadata
+          joined server-side, and pairing ``document_id=`` with either
+          ``operator_id=`` or ``operator_name=`` narrows the scope further.
+        - ``Job``: accepts an optional ``status=`` of a single
+          :class:`JobStatus` (or an iterable of them).
+        - ``Document``, ``DocumentGroup``, ``Operator``, ``Workflow``: no
+          filters; list is scoped to this session's project.
+
+        Args:
+            resource_type (type[T]): The resource class to list.
+            **filters (Any): Type-specific filters as described above.
+
+        Returns:
+            PaginatedIterator[T]: A lazy paginated iterator over the matching
+            resources.
+
+        Raises:
+            ValidationError: If a required filter is missing.
+            TypeError: If ``resource_type`` is not a supported resource class.
+        """
         client = self._engine.client
         project_id = self._engine.project_id
 
@@ -326,6 +473,25 @@ class Session:
         raise TypeError(f"list() does not support resource type {resource_type!r}")
 
     def _list_annotations(self, **filters: Any) -> PaginatedIterator[Annotation]:
+        """Dispatch annotation listing to the appropriate API endpoint.
+
+        Annotations have several scoped list endpoints instead of a single
+        filterable one; this helper picks the right endpoint based on which
+        filters the caller supplied.
+
+        Args:
+            **filters (Any): Any of ``document_id``, ``chunk_id``,
+                ``operator_id``, ``operator_name``, and ``hydrated``. See
+                :meth:`list` for the allowed combinations.
+
+        Returns:
+            PaginatedIterator[Annotation]: A lazy paginated iterator over the
+            matching annotations.
+
+        Raises:
+            ValidationError: If none of ``document_id``, ``chunk_id``, or
+                ``operator_id`` were supplied.
+        """
         client = self._engine.client
         document_id = filters.get("document_id")
         chunk_id = filters.get("chunk_id")
@@ -417,7 +583,25 @@ class Session:
         )
 
     def query(self, sql: str, *, limit: int = 1000) -> QueryResult:
-        """Execute an annotation SQL query."""
+        """Execute a SQL query against this project's annotations.
+
+        Each committed operator becomes a table in the query namespace (keyed
+        by operator name), with columns drawn from the operator's JSON schema.
+
+        Args:
+            sql (str): The SQL query to run.
+            limit (int): Maximum number of rows to return. Applied
+                server-side.
+
+        Returns:
+            QueryResult: A :class:`QueryResult` with column names, rows, and
+            the server-reported execution time.
+
+        Raises:
+            QueryError: If the query is malformed or references an unknown
+                operator/column.
+            AuthenticationError: If authentication fails on first access.
+        """
         response = self._engine.client.queries.execute(
             project_id=self._engine.project_id,
             query=sql,
@@ -432,7 +616,25 @@ class Session:
         )
 
     def run(self, workflow: Workflow, *, documents: list[Document]) -> Job:
-        """Run a workflow on a set of documents. Returns a :class:`Job` handle."""
+        """Start a workflow against a batch of documents.
+
+        The workflow and every document must already be committed — this
+        method does not auto-flush the unit of work. Callers can use the
+        returned :class:`Job` to poll for completion or cancel.
+
+        Args:
+            workflow (Workflow): A committed workflow to execute.
+            documents (list[Document]): Committed documents to process. Must
+                contain at least one document.
+
+        Returns:
+            Job: A :class:`Job` handle bound to this session, with ``status``
+            initialized to :attr:`JobStatus.NOT_STARTED`.
+
+        Raises:
+            ValidationError: If the workflow or any document has not yet been
+                committed (i.e. lacks an ``id``).
+        """
         if workflow.id is None:
             raise ValidationError(
                 "run() requires committed resources; call session.commit() first"
@@ -453,7 +655,24 @@ class Session:
     # -- writes (staged) -------------------------------------------------------
 
     def add(self, resource: _Resource) -> None:
-        """Stage a resource for creation. Does not hit the network."""
+        """Stage a resource for creation on the next :meth:`commit`.
+
+        Idempotent: adding the same instance twice is a no-op. Adding is
+        local-only; no HTTP request is made until :meth:`commit` runs.
+
+        Args:
+            resource (_Resource): The unsaved resource to create. Must be one
+                of :class:`Document`, :class:`DocumentGroup`, :class:`Chunk`,
+                :class:`Annotation`, :class:`Operator`, or :class:`Workflow`,
+                and must not already have a server-assigned id.
+
+        Raises:
+            ValidationError: If the resource type is read-only (e.g.
+                :class:`Page`), if it is a :class:`Job` (jobs are created via
+                :meth:`run`), or if the resource already has an id (use
+                :meth:`update` instead).
+            TypeError: If the resource type is otherwise unsupported.
+        """
         if isinstance(resource, _READ_ONLY_TYPES):
             raise ValidationError(
                 f"{type(resource).__name__} is read-only; cannot add"
@@ -480,7 +699,22 @@ class Session:
         self._pending.added.append(resource)
 
     def update(self, resource: _Resource) -> None:
-        """Stage an existing resource for update. Does not hit the network."""
+        """Stage a persisted resource for update on the next :meth:`commit`.
+
+        Idempotent: staging the same instance twice is a no-op. The resource
+        is sent to the server verbatim on commit — mutate the fields you want
+        to change before calling :meth:`commit`.
+
+        Args:
+            resource (_Resource): A persisted resource (must have an ``id``).
+                Must be one of :class:`Document`, :class:`DocumentGroup`,
+                :class:`Annotation`, :class:`Operator`, or :class:`Workflow`.
+
+        Raises:
+            ValidationError: If the resource type does not support update
+                (:class:`Page`, :class:`Chunk`), or if the resource has no id.
+            TypeError: If the resource type is otherwise unsupported.
+        """
         if isinstance(resource, _UPDATE_UNSUPPORTED_TYPES):
             raise ValidationError(
                 f"{type(resource).__name__} does not support update"
@@ -503,7 +737,25 @@ class Session:
         self._pending.dirty.append(resource)
 
     def delete(self, resource: _Resource) -> None:
-        """Stage a resource for deletion. Does not hit the network."""
+        """Stage a resource for deletion on the next :meth:`commit`.
+
+        If the resource was staged for creation via :meth:`add` and has not
+        yet been committed, this cancels the pending add instead of queuing a
+        server-side delete. Idempotent: staging the same instance twice is a
+        no-op.
+
+        Args:
+            resource (_Resource): The resource to delete. For
+                already-persisted resources, must have an ``id``. Must be
+                one of :class:`Document`, :class:`DocumentGroup`,
+                :class:`Chunk`, :class:`Annotation`, :class:`Operator`, or
+                :class:`Workflow`.
+
+        Raises:
+            ValidationError: If the resource type is read-only, or if it has
+                not been persisted and was not previously added.
+            TypeError: If the resource type is otherwise unsupported.
+        """
         if isinstance(resource, _READ_ONLY_TYPES):
             raise ValidationError(
                 f"{type(resource).__name__} is read-only; cannot delete"
@@ -530,7 +782,29 @@ class Session:
         self._pending.deleted.append(resource)
 
     def commit(self) -> None:
-        """Flush all staged ops to the API."""
+        """Flush every staged add / update / delete to the server.
+
+        Operations run sequentially in the order ``add``, ``update``,
+        ``delete`` (preserving insertion order within each group). Resources
+        passed to :meth:`add` are hydrated in place once their server write
+        succeeds.
+
+        The API has no transaction primitive: a mid-batch failure leaves
+        earlier writes applied server-side. When that happens this method
+        raises :class:`~ragnerock.errors.CommitError` carrying the committed
+        and still-pending resources so the caller can recover.
+
+        Called with an empty staging queue, this is a no-op.
+
+        Raises:
+            CommitError: A staged operation failed. Operations that ran
+                before the failure are recorded on the exception's
+                ``committed`` list; the failing op and everything after it
+                are recorded on ``pending``.
+            ValidationError: A precheck failed before any HTTP call was made
+                (e.g. a Document was staged without ``file_path`` or
+                ``source_url``).
+        """
         if self._pending.is_empty():
             return
 
@@ -570,6 +844,19 @@ class Session:
         self._pending.clear()
 
     def _precheck_create(self, resource: _Resource) -> None:
+        """Validate a staged resource before any HTTP calls are made.
+
+        Catches the common shape errors (missing file source on a document,
+        annotation without an operator id or attachment target) here so that
+        :meth:`commit` fails fast before any partial writes land.
+
+        Args:
+            resource (_Resource): The staged-for-creation resource to
+                validate.
+
+        Raises:
+            ValidationError: If the resource is missing required fields.
+        """
         if isinstance(resource, Document):
             if not resource.file_path and not resource.source_url:
                 raise ValidationError(
@@ -588,7 +875,20 @@ class Session:
                 )
 
     def refresh(self, resource: _Resource) -> None:
-        """Re-fetch ``resource`` from the server and overwrite fields in place."""
+        """Re-fetch a persisted resource and overwrite its fields in place.
+
+        Use this to pick up server-side changes (e.g. to observe a job's
+        status transition) without allocating a new object.
+
+        Args:
+            resource (_Resource): A persisted resource bound to this session.
+                Must have an ``id`` (or ``root_id`` for annotations).
+
+        Raises:
+            ValidationError: If the resource has not been persisted.
+            TypeError: If the resource type does not support refresh.
+            NotFoundError: If the resource no longer exists server-side.
+        """
         rid = _resource_id(resource)
         if rid is None:
             raise ValidationError(
@@ -620,12 +920,31 @@ class Session:
         _copy_fields(resource, response)
 
     def rollback(self) -> None:
-        """Discard the staging queue. Local-only; does not touch the server."""
+        """Discard every staged operation without contacting the server.
+
+        Has no effect on resources whose writes already succeeded (e.g. on
+        the surviving operations of a failed :meth:`commit`).
+        """
         self._pending.clear()
 
     # -- per-type create / update / delete -------------------------------------
 
     def _create_resource(self, resource: _Resource) -> None:
+        """Issue the appropriate create call for ``resource`` and hydrate it.
+
+        On success, the resource is mutated in place with the server's
+        assigned fields (``id``, timestamps, etc.) and bound to this session.
+
+        Args:
+            resource (_Resource): The resource to create. Must match one of
+                the supported types; shape validation happens here as a
+                second line of defense after :meth:`_precheck_create`.
+
+        Raises:
+            ValidationError: If required fields are missing.
+            TypeError: If the resource type is not supported for creation.
+            RagnerockError: If the server rejects the request.
+        """
         client = self._engine.client
 
         if isinstance(resource, Document):
@@ -744,6 +1063,19 @@ class Session:
         )
 
     def _update_resource(self, resource: _Resource) -> None:
+        """Issue the appropriate update call for ``resource`` and hydrate it.
+
+        The full current field set is sent; the server decides which fields
+        are writable and silently drops the rest.
+
+        Args:
+            resource (_Resource): The resource to update. Must have an
+                identity.
+
+        Raises:
+            TypeError: If the resource type is not supported for update.
+            RagnerockError: If the server rejects the request.
+        """
         client = self._engine.client
 
         if isinstance(resource, Document):
@@ -804,6 +1136,19 @@ class Session:
         )
 
     def _delete_resource(self, resource: _Resource) -> None:
+        """Issue the appropriate delete call for ``resource``.
+
+        No local state is modified — the resource object is left intact so
+        callers can still inspect it (or re-add it, if that makes sense).
+
+        Args:
+            resource (_Resource): The resource to delete. Must have an
+                identity.
+
+        Raises:
+            TypeError: If the resource type is not supported for deletion.
+            RagnerockError: If the server rejects the request.
+        """
         client = self._engine.client
 
         if isinstance(resource, Document):
@@ -832,7 +1177,14 @@ class Session:
     # -- internal --------------------------------------------------------------
 
     def _bind(self, resource: T) -> T:
-        """Attach this session to a resource."""
+        """Attach this session to ``resource`` and return it for chaining.
+
+        Args:
+            resource (T): The resource to bind.
+
+        Returns:
+            T: The same resource, now carrying a session back-reference.
+        """
         resource._bind(self)
         return resource
 
@@ -842,6 +1194,31 @@ class Session:
         resource_type: type[T],
         **kwargs: Any,
     ) -> PaginatedIterator[T]:
+        """Dispatch a ``parent.list(child_type, ...)`` call to the right endpoint.
+
+        Supported navigations:
+
+        - :class:`Document` → :class:`Chunk`, :class:`Page`,
+          :class:`Annotation` (optional ``operator_name=``)
+        - :class:`Chunk` → :class:`Annotation`
+        - :class:`DocumentGroup` → :class:`Document`
+        - :class:`Operator` → :class:`Annotation` (optional ``document=``
+          to scope, ``hydrated=True`` for joined operator metadata)
+
+        Args:
+            parent (_Resource): The resource to navigate from.
+            resource_type (type[T]): The related resource class to list.
+            **kwargs (Any): Extra filters forwarded to the right list
+                endpoint.
+
+        Returns:
+            PaginatedIterator[T]: A lazy paginated iterator over the related
+            resources.
+
+        Raises:
+            TypeError: If no navigation exists from ``parent`` to
+                ``resource_type``.
+        """
         if isinstance(parent, Document):
             if resource_type is Chunk:
                 return self.list(Chunk, document_id=parent.id)
@@ -896,7 +1273,25 @@ class Session:
 
 
 def _build(resource_type: type[T], response: Any) -> T:
-    """Construct a resource from a client response model."""
+    """Construct a resource from a client-layer response object.
+
+    Keeps only the fields that match ``resource_type``'s schema, so the
+    extra ``extra="allow"`` fields carried by client response models don't
+    bleed into the resource model and trip pydantic validation.
+
+    Args:
+        resource_type (type[T]): The resource class to instantiate.
+        response (Any): A client-layer response (pydantic model or dict).
+            ``None`` yields an empty instance.
+
+    Returns:
+        T: A resource instance populated from ``response``. Not yet bound to
+        a session — callers must pass it through :meth:`Session._bind`.
+
+    Raises:
+        TypeError: If ``response`` is neither a pydantic model, a dict, nor
+            ``None``.
+    """
     if response is None:
         return resource_type()
     if hasattr(response, "model_dump"):

@@ -34,19 +34,21 @@ class Document(_Resource):
     ``created_at``, etc.) are populated in place.
 
     Attributes:
-        id: Server-assigned UUID. ``None`` until committed.
-        name: Human-readable document name.
-        project_id: Owning project.
-        group_id: Optional group membership.
-        file_path: Local filesystem path for upload (pre-commit only).
-        source_url: Remote URL for server-side fetch (pre-commit only).
-        file_type: File type enum (PDF, DOCX, …).
-        storage_path: Server-side storage location.
-        filesize: Byte size of the document.
-        created_at: Creation timestamp.
-        updated_at: Last-modified timestamp.
-        created_by_id: User who created the document.
-        metadata: Arbitrary key-value metadata.
+        id (UUID | None): Server-assigned UUID. ``None`` until committed.
+        name (str | None): Human-readable document name.
+        project_id (UUID | None): Owning project.
+        group_id (UUID | None): Optional group membership.
+        file_path (str | None): Local filesystem path for upload (pre-commit
+            only).
+        source_url (str | None): Remote URL for server-side fetch (pre-commit
+            only).
+        file_type (FileType | None): File type enum (PDF, DOCX, …).
+        storage_path (str | None): Server-side storage location.
+        filesize (int | None): Byte size of the document.
+        created_at (datetime | None): Creation timestamp.
+        updated_at (datetime | None): Last-modified timestamp.
+        created_by_id (UUID | None): User who created the document.
+        metadata (dict[str, Any] | None): Arbitrary key-value metadata.
     """
 
     id: UUID | None = None
@@ -64,9 +66,22 @@ class Document(_Resource):
     metadata: dict[str, Any] | None = None
 
     def content(self) -> bytes:
-        """Download this document's raw bytes. Requires a bound session and ``id``."""
+        """Download the underlying file from the server.
+
+        Returns the raw bytes the server has on disk — no parsing or text
+        extraction is performed.
+
+        Returns:
+            bytes: The document's raw file content.
+
+        Raises:
+            RuntimeError: If this document has no session back-reference, or
+                has not been committed yet (no ``id``).
+        """
         if self._session is None:
-            raise RuntimeError("Document is not bound to a session; cannot fetch content.")
+            raise RuntimeError(
+                "Document is not bound to a session; cannot fetch content."
+            )
         if self.id is None:
             raise RuntimeError("Document has no id; cannot fetch content.")
         return self._session._engine.client.documents.content(self.id)
@@ -76,10 +91,10 @@ class DocumentGroup(_Resource):
     """A named collection of documents within a project.
 
     Attributes:
-        id: Server-assigned UUID. ``None`` until committed.
-        name: Group name.
-        project_id: Owning project.
-        created_at: Creation timestamp.
+        id (UUID | None): Server-assigned UUID. ``None`` until committed.
+        name (str | None): Group name.
+        project_id (UUID | None): Owning project.
+        created_at (datetime | None): Creation timestamp.
     """
 
     id: UUID | None = None

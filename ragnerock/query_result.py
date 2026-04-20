@@ -12,10 +12,11 @@ class QueryResult:
     """Result of ``session.query(...)``.
 
     Attributes:
-        columns: Column names in the result set.
-        data: Rows as a list of dicts (one per row).
-        row_count: Number of rows returned.
-        query_time_ms: Server-reported execution time, if available.
+        columns (list[str]): Column names in the result set.
+        data (list[dict[str, Any]]): Rows as a list of dicts (one per row).
+        row_count (int): Number of rows returned.
+        query_time_ms (int | None): Server-reported execution time, if
+            available.
     """
 
     def __init__(
@@ -26,17 +27,41 @@ class QueryResult:
         row_count: int,
         query_time_ms: int | None = None,
     ) -> None:
+        """Initialize a query result.
+
+        Args:
+            columns (list[str]): Column names in server order.
+            data (list[dict[str, Any]]): Rows as a list of dicts keyed by
+                column name.
+            row_count (int): Number of rows in ``data``.
+            query_time_ms (int | None): Server-reported execution time in
+                milliseconds, if the server included it.
+        """
         self.columns = columns
         self.data = data
         self.row_count = row_count
         self.query_time_ms = query_time_ms
 
     def to_dict(self) -> list[dict[str, Any]]:
-        """Return the results as a list of dicts (one per row)."""
+        """Return the rows as a list of column-keyed dicts.
+
+        Returns:
+            list[dict[str, Any]]: The same list of row dicts held by
+            :attr:`data`.
+        """
         return self.data
 
     def to_pandas(self) -> pd.DataFrame:
-        """Convert to a pandas DataFrame. Requires ``pandas`` to be installed."""
+        """Convert the result to a pandas DataFrame.
+
+        Returns:
+            pd.DataFrame: A DataFrame whose column order matches
+            :attr:`columns`.
+
+        Raises:
+            ImportError: If ``pandas`` is not installed. Install the optional
+                extra with ``pip install 'ragnerock[pandas]'``.
+        """
         try:
             import pandas as pd
         except ImportError as e:

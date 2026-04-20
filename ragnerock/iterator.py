@@ -12,11 +12,18 @@ class PageResult(Generic[T]):
     """A single page of results returned by a list endpoint.
 
     Attributes:
-        items: Items on this page.
-        total: Total item count across every page (server-reported).
+        items (list[T]): Items on this page.
+        total (int): Total item count across every page, as reported by the
+            server.
     """
 
     def __init__(self, items: list[T], total: int) -> None:
+        """Initialize a page result.
+
+        Args:
+            items (list[T]): Items on this page.
+            total (int): Server-reported total count across every page.
+        """
         self.items = items
         self.total = total
 
@@ -29,9 +36,9 @@ class PaginatedIterator(Generic[T]):
 
     Iterate to yield items one at a time, or use the helpers:
 
-    - ``.all()`` — eagerly fetch everything and return a list
-    - ``.first()`` — fetch and return only the first item (or ``None``)
-    - ``.limit(n)`` — return a new iterator capped at ``n`` items
+    - :meth:`all` — eagerly fetch everything and return a list
+    - :meth:`first` — fetch and return only the first item (or ``None``)
+    - :meth:`limit` — return a new iterator capped at ``n`` items
     """
 
     def __init__(
@@ -40,6 +47,14 @@ class PaginatedIterator(Generic[T]):
         *,
         page_size: int = 100,
     ) -> None:
+        """Initialize the iterator.
+
+        Args:
+            fetch_page (FetchPage[T]): Callable taking ``(skip, limit)`` and
+                returning a :class:`PageResult`. Called on demand as the
+                caller consumes items.
+            page_size (int): Number of items to request per page.
+        """
         self._fetch_page = fetch_page
         self._page_size = page_size
         self._limit: int | None = None
@@ -50,17 +65,36 @@ class PaginatedIterator(Generic[T]):
         self._exhausted = False
 
     def limit(self, n: int) -> PaginatedIterator[T]:
-        """Return a new iterator that yields at most ``n`` items."""
+        """Return a fresh iterator that yields at most ``n`` items.
+
+        Args:
+            n (int): Maximum number of items the new iterator will yield.
+
+        Returns:
+            PaginatedIterator[T]: A new iterator over the same pages, capped
+            at ``n`` items. The original iterator is unaffected.
+        """
         new = PaginatedIterator(self._fetch_page, page_size=self._page_size)
         new._limit = n
         return new
 
     def all(self) -> list[T]:
-        """Eagerly fetch all results and return them as a list."""
+        """Fetch every page and return all items as a list.
+
+        Prefer iteration for large result sets — this materializes everything
+        in memory.
+
+        Returns:
+            list[T]: Every item across every page, in server order.
+        """
         return list(iter(self))
 
     def first(self) -> T | None:
-        """Return the first item, or ``None`` if empty."""
+        """Fetch a single-item page and return its first item.
+
+        Returns:
+            T | None: The first item, or ``None`` if the result set is empty.
+        """
         page = self._fetch_page(0, 1)
         if not page.items:
             return None

@@ -16,18 +16,22 @@ class Annotation(_Resource):
     set, depending on the operator's chunk_type.
 
     Attributes:
-        root_id: Stable annotation identity (server-assigned).
-        operator_id: Operator that produced (or will produce) this annotation.
-        operator_name: Cached operator name, when the server hydrates it.
-        document_id: Document this annotation is attached to.
-        chunk_id: Chunk this annotation is attached to.
-        page_id: Page this annotation is attached to.
-        data: Arbitrary JSON matching the operator's schema.
-        confidence_score: Optional confidence value (0.0 – 1.0).
-        generation_metadata: Optional server-side metadata about how the
-            annotation was generated.
-        created_at: Creation timestamp.
-        updated_at: Last-modified timestamp.
+        root_id (UUID | None): Stable annotation identity (server-assigned).
+        operator_id (UUID | None): Operator that produced (or will produce)
+            this annotation.
+        operator_name (str | None): Cached operator name, when the server
+            hydrates it.
+        document_id (UUID | None): Document this annotation is attached to.
+        chunk_id (UUID | None): Chunk this annotation is attached to.
+        page_id (UUID | None): Page this annotation is attached to.
+        data (dict[str, Any] | None): Arbitrary JSON matching the operator's
+            schema.
+        confidence_score (float | None): Optional confidence value
+            (0.0 – 1.0).
+        generation_metadata (dict[str, Any] | None): Optional server-side
+            metadata about how the annotation was generated.
+        created_at (datetime | None): Creation timestamp.
+        updated_at (datetime | None): Last-modified timestamp.
     """
 
     root_id: UUID | None = None
@@ -44,5 +48,14 @@ class Annotation(_Resource):
 
     @property
     def id(self) -> UUID | None:
-        """Alias for ``root_id``, for uniformity with other resources."""
+        """Alias for :attr:`root_id`.
+
+        Every other resource exposes its server-assigned identity as ``id``;
+        annotations use ``root_id`` on the wire. This property lets callers
+        treat annotations uniformly.
+
+        Returns:
+            UUID | None: The annotation's ``root_id``, or ``None`` if not yet
+            persisted.
+        """
         return self.root_id

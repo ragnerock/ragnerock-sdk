@@ -13,10 +13,12 @@ class RagnerockError(Exception):
     """Base exception for every error the SDK raises.
 
     Attributes:
-        message: Human-readable error message.
-        status_code: HTTP status code from the API response, if applicable.
-        suggestion: Optional suggestion for how to fix the error.
-        details: Additional structured error details from the API.
+        message (str): Human-readable error message.
+        status_code (int | None): HTTP status code from the API response, if
+            applicable.
+        suggestion (str | None): Optional suggestion for how to fix the error.
+        details (dict[str, Any] | None): Additional structured error details
+            from the API.
     """
 
     def __init__(
@@ -27,6 +29,17 @@ class RagnerockError(Exception):
         suggestion: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
+        """Initialize the exception with structured fields from the API.
+
+        Args:
+            message (str): Human-readable error message.
+            status_code (int | None): HTTP status code from the response, if
+                the error originated from an HTTP call.
+            suggestion (str | None): Actionable hint returned by the server
+                describing how to fix the request.
+            details (dict[str, Any] | None): Extra structured error context
+                from the server.
+        """
         super().__init__(message)
         self.message = message
         self.status_code = status_code
@@ -60,7 +73,7 @@ class QueryError(RagnerockError):
     """Raised when an annotation SQL query fails.
 
     Attributes:
-        error_code: Structured error code from the query engine.
+        error_code (str | None): Structured error code from the query engine.
     """
 
     def __init__(
@@ -72,6 +85,17 @@ class QueryError(RagnerockError):
         suggestion: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
+        """Initialize the exception with query-engine fields.
+
+        Args:
+            message (str): Human-readable error message.
+            status_code (int | None): HTTP status code from the response.
+            error_code (str | None): Structured code from the query engine
+                (e.g. a parse error or unknown-column code). Presence of this
+                field is what distinguishes query errors from generic 4xx/5xx.
+            suggestion (str | None): Actionable hint returned by the server.
+            details (dict[str, Any] | None): Extra structured error context.
+        """
         super().__init__(
             message,
             status_code=status_code,
@@ -89,9 +113,11 @@ class CommitError(RagnerockError):
     through and what is still pending so the caller can recover.
 
     Attributes:
-        committed: Resources whose server-side write succeeded before the failure.
-        pending: Resources whose write was never attempted (or failed, in slot 0).
-        cause: The underlying exception that triggered the abort.
+        committed (list[_Resource]): Resources whose server-side write
+            succeeded before the failure.
+        pending (list[_Resource]): Resources whose write was never attempted
+            (or failed, in slot 0).
+        cause (Exception): The underlying exception that triggered the abort.
     """
 
     def __init__(
@@ -102,13 +128,42 @@ class CommitError(RagnerockError):
         pending: list[_Resource],
         cause: Exception,
     ) -> None:
+        """Record where the batch failed so the caller can recover.
+
+        Args:
+            message (str): Human-readable description of the failure.
+            committed (list[_Resource]): Resources that were successfully
+                written before the abort. These are live server-side.
+            pending (list[_Resource]): Resources whose write was never
+                attempted, plus the one that failed. Safe to retry once the
+                underlying issue is resolved.
+            cause (Exception): The exception that triggered the abort.
+        """
         super().__init__(message)
         self.committed = committed
         self.pending = pending
         self.cause = cause
 
 
-def _parse_detail(response_text: str) -> tuple[str, str | None, dict[str, Any] | None, str | None]:
+def _parse_detail(
+    response_text: str,
+) -> tuple[str, str | None, dict[str, Any] | None, str | None]:
+    """Extract structured error fields from an API error response body.
+
+    The Ragnerock API wraps errors in either ``{"detail": {...}}`` (the common
+    case) or ``{"detail": [...]}`` (FastAPI validation errors). This helper
+    pulls out the human-readable message, an optional suggestion, any
+    additional details dict, and a query-engine error code when present.
+    Bodies that are empty, non-JSON, or not shaped like an error envelope
+    fall through to a plain-text message with the other fields unset.
+
+    Args:
+        response_text (str): Raw response body from an HTTP 4xx/5xx response.
+
+    Returns:
+        tuple[str, str | None, dict[str, Any] | None, str | None]: A 4-tuple
+        of ``(message, suggestion, details, error_code)``.
+    """
     message = response_text or ""
     suggestion: str | None = None
     details: dict[str, Any] | None = None
@@ -142,6 +197,22 @@ def _parse_detail(response_text: str) -> tuple[str, str | None, dict[str, Any] |
 
 
 def raise_for_status(status_code: int, response_text: str) -> None:
+    """Raise the most specific SDK exception for an HTTP error response.
+
+    No-ops for 2xx/3xx statuses. For 4xx/5xx, parses the body and picks the
+    subclass that best describes the failure: ``QueryError`` when the server
+    returned a query-engine error code, ``AuthenticationError`` for 401/403,
+    ``NotFoundError`` for 404, ``ValidationError`` for 422, and the base
+    ``RagnerockError`` for everything else.
+
+    Args:
+        status_code (int): HTTP status code from the response.
+        response_text (str): Raw response body, used to extract error
+            details.
+
+    Raises:
+        RagnerockError: Or a subclass matching ``status_code``.
+    """
     if status_code < 400:
         return
 

@@ -18,8 +18,8 @@ class Engine:
     errors.
 
     Attributes:
-        host: Base API URL (e.g. ``https://api.ragnerock.com``).
-        project_name: The project name parsed from the connection string.
+        host (str): Base API URL (e.g. ``https://api.ragnerock.com``).
+        project_name (str): Project name parsed from the connection string.
     """
 
     def __init__(
@@ -30,6 +30,20 @@ class Engine:
         email: str,
         password: str,
     ) -> None:
+        """Store connection config. Performs no network I/O.
+
+        Prefer :func:`create_engine` for the usual connection-string path; use
+        this constructor directly only when you already have the individual
+        fields in hand (for example, in tests).
+
+        Args:
+            host (str): Fully-qualified base URL, including scheme
+                (e.g. ``https://api.ragnerock.com``).
+            project_name (str): Project to scope sessions to. Resolved to a
+                project ID on the first session open.
+            email (str): Account email used for authentication.
+            password (str): Account password used for authentication.
+        """
         self.host = host
         self.project_name = project_name
         self._email = email
@@ -38,9 +52,16 @@ class Engine:
         self._project_id: UUID | None = None
 
     def _ensure_connected(self) -> None:
-        """Authenticate and resolve the project ID on first use.
+        """Authenticate and resolve ``project_name`` to a project ID.
 
-        Idempotent after the first call.
+        Idempotent: subsequent calls are no-ops once the client has a bearer
+        token and the project ID is cached.
+
+        Raises:
+            AuthenticationError: Login failed (bad credentials, unreachable
+                host surfacing as an auth failure, etc.).
+            NotFoundError: The configured ``project_name`` does not exist on
+                the server.
         """
         if self._client is not None and self._project_id is not None:
             return
@@ -67,14 +88,34 @@ class Engine:
 
     @property
     def client(self) -> RagnerockClient:
-        """Authenticated low-level client. Connects on first access."""
+        """Authenticated low-level HTTP client.
+
+        Triggers authentication on first access; subsequent accesses are free.
+
+        Returns:
+            RagnerockClient: The authenticated low-level client.
+
+        Raises:
+            AuthenticationError: If authentication fails on first access.
+            NotFoundError: If the configured project cannot be resolved.
+        """
         self._ensure_connected()
         assert self._client is not None
         return self._client
 
     @property
     def project_id(self) -> UUID:
-        """Resolved project UUID. Connects on first access."""
+        """UUID of the project this engine is scoped to.
+
+        Triggers authentication on first access; subsequent accesses are free.
+
+        Returns:
+            UUID: The resolved project id.
+
+        Raises:
+            AuthenticationError: If authentication fails on first access.
+            NotFoundError: If the configured project cannot be resolved.
+        """
         self._ensure_connected()
         assert self._project_id is not None
         return self._project_id
@@ -93,10 +134,11 @@ def create_engine(connection_string: str) -> Engine:
         create_engine("ragnerock://user@example.com:pass@localhost:8080/my_project")
 
     Args:
-        connection_string: A Ragnerock connection string.
+        connection_string (str): A Ragnerock connection string.
 
     Returns:
-        An unconnected :class:`Engine` (no network I/O has happened yet).
+        Engine: An unconnected :class:`Engine` (no network I/O has happened
+        yet).
 
     Raises:
         ValueError: If the connection string is malformed.
