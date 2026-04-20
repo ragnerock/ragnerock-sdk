@@ -648,6 +648,7 @@ class Session:
                 metadata=resource.metadata,
             )
             _copy_fields(resource, response)
+            self._bind(resource)
             return
 
         if isinstance(resource, DocumentGroup):
@@ -657,6 +658,7 @@ class Session:
                 self._engine.project_id, name=resource.name
             )
             _copy_fields(resource, response)
+            self._bind(resource)
             return
 
         if isinstance(resource, Chunk):
@@ -674,6 +676,7 @@ class Session:
                 metadata=resource.metadata,
             )
             _copy_fields(resource, response)
+            self._bind(resource)
             return
 
         if isinstance(resource, Annotation):
@@ -696,6 +699,7 @@ class Session:
                 confidence_score=resource.confidence_score,
             )
             _copy_fields(resource, response)
+            self._bind(resource)
             return
 
         if isinstance(resource, Operator):
@@ -718,6 +722,7 @@ class Session:
                 multi_annotation=resource.multi_annotation,
             )
             _copy_fields(resource, response)
+            self._bind(resource)
             return
 
         if isinstance(resource, Workflow):
@@ -731,6 +736,7 @@ class Session:
                 auto_run_on_upload=resource.auto_run_on_upload,
             )
             _copy_fields(resource, response)
+            self._bind(resource)
             return
 
         raise TypeError(

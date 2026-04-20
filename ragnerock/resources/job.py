@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime
-from enum import IntEnum
+from enum import IntEnum, auto
 from typing import Any
 from uuid import UUID
 
@@ -18,6 +18,13 @@ class JobStatus(IntEnum):
     IN_PROGRESS = 2
     SUCCEEDED = 3
     FAILED = 4
+
+
+class JobType(IntEnum):
+    """Job type. Mirrors the server-side enum values."""
+
+    AUTOMATIC = auto()
+    MANUAL = auto()
 
 
 class Job(_Resource):
@@ -43,7 +50,7 @@ class Job(_Resource):
     start_time: datetime | None = None
     end_time: datetime | None = None
     execution_trace: list[dict[str, Any]] | None = None
-    job_type: str | None = None
+    job_type: JobType | None = None
     should_parse: bool | None = None
     capture_execution_log: bool | None = None
     n_tokens: int | None = None

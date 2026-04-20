@@ -48,7 +48,7 @@ class DocumentListResponse(_ApiModel):
 
 class DocumentGroupResponse(_ApiModel):
     id: UUID
-    project_id: UUID
+    project_id: UUID | None = None
     name: str
 
 
@@ -98,7 +98,7 @@ class AnnotationListResponse(_ApiModel):
 
 class OperatorResponse(_ApiModel):
     id: UUID
-    project_id: UUID
+    project_id: UUID | None = None
     name: str
 
 
@@ -111,7 +111,7 @@ class OperatorListResponse(_ApiModel):
 
 class WorkflowResponse(_ApiModel):
     id: UUID
-    project_id: UUID
+    project_id: UUID | None = None
     name: str
 
 
@@ -351,7 +351,7 @@ class _DocumentsSection(_Section):
         source_url: str | None = None,
         name: str | None = None,
         group_id: UUID | None = None,
-        file_type: str | None = None,
+        file_type: int | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> DocumentResponse:
         """POST /api/documents/ (multipart)."""
@@ -361,7 +361,7 @@ class _DocumentsSection(_Section):
         if group_id is not None:
             form["group_id"] = str(group_id)
         if file_type is not None:
-            form["file_type"] = file_type
+            form["file_type"] = str(int(file_type))
         if source_url is not None:
             form["source_url"] = source_url
         if metadata is not None:

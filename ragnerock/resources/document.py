@@ -3,10 +3,26 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import IntEnum, auto
 from typing import Any
 from uuid import UUID
 
 from ragnerock.resources.base import _Resource
+
+
+class FileType(IntEnum):
+    """File type. Mirrors the server-side enum values."""
+
+    PLAINTEXT = auto()
+    MARKDOWN = auto()
+    PDF = auto()
+    DOCX = auto()
+    XLSX = auto()
+    CSV = auto()
+    IPYNB = auto()
+    JPG = auto()
+    JPEG = auto()
+    PNG = auto()
 
 
 class Document(_Resource):
@@ -24,7 +40,7 @@ class Document(_Resource):
         group_id: Optional group membership.
         file_path: Local filesystem path for upload (pre-commit only).
         source_url: Remote URL for server-side fetch (pre-commit only).
-        file_type: MIME type or extension.
+        file_type: File type enum (PDF, DOCX, …).
         storage_path: Server-side storage location.
         filesize: Byte size of the document.
         created_at: Creation timestamp.
@@ -39,7 +55,7 @@ class Document(_Resource):
     group_id: UUID | None = None
     file_path: str | None = None
     source_url: str | None = None
-    file_type: str | None = None
+    file_type: FileType | None = None
     storage_path: str | None = None
     filesize: int | None = None
     created_at: datetime | None = None

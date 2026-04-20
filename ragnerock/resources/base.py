@@ -27,7 +27,7 @@ class _Resource(BaseModel):
     The ``_session`` attribute is private and excluded from serialization.
     """
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=True)
 
     _session: Session | None = PrivateAttr(default=None)
 

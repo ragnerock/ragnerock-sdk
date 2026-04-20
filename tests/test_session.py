@@ -11,6 +11,7 @@ import pytest
 
 from ragnerock import (
     Document,
+    DocumentGroup,
     Page,
     Session,
     ValidationError,
@@ -82,6 +83,24 @@ class TestResourceBinding:
         docs = session.list(Document).all()
         assert len(docs) == 1
         assert docs[0]._is_bound
+
+    def test_add_commit_binds_resource(self, httpx_mock, session, payloads):
+        """Resources created via add()+commit() must carry the session back-reference.
+
+        Regression: without this, `group.list(Document)` after a fresh commit
+        raises "not bound to a session".
+        """
+        import re
+
+        httpx_mock.add_response(
+            method="POST",
+            url=re.compile(r".*/api/projects/.*/groups/$"),
+            json=payloads.document_group(),
+        )
+        group = DocumentGroup(name="Q1 contracts")
+        session.add(group)
+        session.commit()
+        assert group._is_bound
 
 
 class TestUnsupportedDispatch:

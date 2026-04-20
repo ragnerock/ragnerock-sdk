@@ -140,7 +140,7 @@ class _Payloads:
             "project_id": str(TEST_PROJECT_ID),
             "name": "sample.pdf",
             "group_id": None,
-            "file_type": "application/pdf",
+            "file_type": 3,  # PDF
             "source_url": None,
             "storage_path": "projects/demo/sample.pdf",
             "filesize": 12345,
@@ -245,7 +245,7 @@ class _Payloads:
             "end_time": None,
             "status": 2,  # IN_PROGRESS
             "status_message": None,
-            "job_type": "workflow",
+            "job_type": 2,  # MANUAL
             "should_parse": True,
             "capture_execution_log": False,
             "n_tokens": None,

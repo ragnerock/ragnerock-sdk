@@ -5,8 +5,8 @@ from __future__ import annotations
 from ragnerock.resources.annotation import Annotation
 from ragnerock.resources.base import _Resource
 from ragnerock.resources.chunk import Chunk, ChunkType
-from ragnerock.resources.document import Document, DocumentGroup
-from ragnerock.resources.job import Job, JobStatus
+from ragnerock.resources.document import Document, DocumentGroup, FileType
+from ragnerock.resources.job import Job, JobStatus, JobType
 from ragnerock.resources.operator import Operator
 from ragnerock.resources.page import Page
 from ragnerock.resources.workflow import Workflow, WorkflowNode
@@ -17,8 +17,10 @@ __all__ = [
     "ChunkType",
     "Document",
     "DocumentGroup",
+    "FileType",
     "Job",
     "JobStatus",
+    "JobType",
     "Operator",
     "Page",
     "Workflow",
