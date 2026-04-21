@@ -113,10 +113,14 @@ class PageListResponse(_ApiModel):
 
 
 class AnnotationResponse(_ApiModel):
-    """Response payload representing a single annotation."""
+    """Response payload representing a single annotation.
 
-    root_id: UUID
-    operator_id: UUID
+    ``root_id`` and ``operator_id`` are optional because the server omits them
+    from the narrow-scope list endpoints (list by document + operator).
+    """
+
+    root_id: UUID | None = None
+    operator_id: UUID | None = None
 
 
 class AnnotationListResponse(_ApiModel):

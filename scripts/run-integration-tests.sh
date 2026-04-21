@@ -9,7 +9,7 @@ HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 source $HERE/helpers/logger.sh
 
 set -eo pipefail
-if [[ -z "${RAGNEROCK_CONN_STR}" ]]; then
+if [[ -z "${RAGNEROCK_CONNECTION_STRING}" ]]; then
   _log "FATAL" "Integration tests require a Ragnerock connection string of format 'ragnerock://<username>:<password>@<host>/<project>'"
 fi
 

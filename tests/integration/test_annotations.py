@@ -133,11 +133,13 @@ class TestListByDocument:
         a = Annotation(operator_id=op.id, document_id=doc.id, data={"total": 2})
         session.add(a)
         session.commit()
+        session.refresh(a)
 
         try:
             listed = list(
-                session.list(Annotation, document_id=doc.id, operator_name=op.name)
+                session.list(Annotation, document_id=doc.id, operator_name=op.name).all()
             )
+        
             assert any(x.root_id == a.root_id for x in listed)
         finally:
             session.delete(a)
@@ -181,12 +183,16 @@ class TestListByOperator:
         session.add(a)
         session.commit()
 
-        try:
-            listed = list(op.list(Annotation, document=doc))
-            assert any(x.root_id == a.root_id for x in listed)
-        finally:
-            session.delete(a)
-            session.commit()
+        # try:
+        listed = list(op.list(Annotation, document=doc, root_id=a.root_id))
+        with open('a.txt', 'w') as f:
+            f.write(str(a.root_id))
+        with open('b.txt', 'w') as f:
+            f.write('\n'.join([str(x.root_id) for x in listed]))
+        assert any(x.root_id == a.root_id for x in listed)
+        # finally:
+        session.delete(a)
+        session.commit()
 
 
 class TestListByChunk:

@@ -48,8 +48,9 @@ class Engine:
         self.project_name = project_name
         self._email = email
         self._password = password
-        self._client: RagnerockClient | None = None
+        self._client = RagnerockClient(host=host)
         self._project_id: UUID | None = None
+        self._connected = False
 
     def _ensure_connected(self) -> None:
         """Authenticate and resolve ``project_name`` to a project ID.
@@ -63,12 +64,11 @@ class Engine:
             NotFoundError: The configured ``project_name`` does not exist on
                 the server.
         """
-        if self._client is not None and self._project_id is not None:
+        if self._connected:
             return
 
-        client = RagnerockClient(host=self.host)
         try:
-            client.auth.login(email=self._email, password=self._password)
+            self._client.auth.login(email=self._email, password=self._password)
         except AuthenticationError:
             raise
         except RagnerockError as e:
@@ -79,28 +79,26 @@ class Engine:
                 details=e.details,
             ) from e
 
-        project_list = client.projects.get_by_name(self.project_name)
+        project_list = self._client.projects.get_by_name(self.project_name)
         if not project_list.projects:
             raise NotFoundError(f"Project '{self.project_name}' not found")
 
         self._project_id = project_list.projects[0].id
-        self._client = client
+        self._connected = True
 
     @property
     def client(self) -> RagnerockClient:
-        """Authenticated low-level HTTP client.
+        """Low-level HTTP client bound to this engine.
 
-        Triggers authentication on first access; subsequent accesses are free.
+        Returns the client without triggering authentication; a freshly
+        constructed engine has no bearer token yet. Authentication happens
+        when a :class:`~ragnerock.session.Session` is opened or when
+        :attr:`project_id` is accessed.
 
         Returns:
-            RagnerockClient: The authenticated low-level client.
-
-        Raises:
-            AuthenticationError: If authentication fails on first access.
-            NotFoundError: If the configured project cannot be resolved.
+            RagnerockClient: The low-level client. Its ``auth_token`` is
+            populated only after :meth:`_ensure_connected` has run.
         """
-        self._ensure_connected()
-        assert self._client is not None
         return self._client
 
     @property

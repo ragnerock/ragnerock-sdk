@@ -16,6 +16,8 @@ pip install 'ragnerock[pandas]'
 
 ## 60-second quick start
 
+From Python:
+
 ```python
 from ragnerock import create_engine, Session, Document
 
@@ -36,14 +38,28 @@ with Session(engine) as session:
     df = result.to_pandas()
 ```
 
+From the shell (same credentials via env vars):
+
+```bash
+export RAGNEROCK_CONNECTION_STRING="ragnerock://you@example.com:pass@api.ragnerock.com/my_project"
+
+ragnerock get doc                                    # list documents as a table
+ragnerock apply -f operators.yaml                    # create/update from YAML
+ragnerock run sentiment-pipeline --documents q1.pdf --wait
+```
+
+See [CLI](cli.md) and [Manifests](manifests.md) for the full command-line reference.
+
 ```{toctree}
 :maxdepth: 1
 :caption: User guide:
 annotations.md
+cli.md
 connecting.md
 documents
 errors
 jobs
+manifests.md
 operators
 queries
 sessions

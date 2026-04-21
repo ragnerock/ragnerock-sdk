@@ -24,7 +24,7 @@ One file per resource area, each exercising a full round-trip flow:
 Set either a full connection string:
 
 ```bash
-export RAGNEROCK_CONN_STR="ragnerock://you@example.com:pass@api.example.com/my_project"
+export RAGNEROCK_CONNECTION_STRING="ragnerock://you@example.com:pass@api.example.com/my_project"
 ```
 
 …or the individual pieces (combined into a connection string at runtime):

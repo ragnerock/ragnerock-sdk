@@ -82,7 +82,7 @@ class TestAddValidation:
         doc = Document(file_path="./x.pdf")
         session.add(doc)
         session.add(doc)
-        assert len(session._pending.added) == 1
+        assert session._pending.ops == [("add", doc)]
 
 
 class TestUpdateValidation:
@@ -119,10 +119,9 @@ class TestDeleteValidation:
         """Deleting a freshly-added resource should just pop it from the queue."""
         doc = Document(file_path="./x.pdf")
         session.add(doc)
-        assert session._pending.added == [doc]
+        assert session._pending.ops == [("add", doc)]
         session.delete(doc)
-        assert session._pending.added == []
-        assert session._pending.deleted == []
+        assert session._pending.ops == []
 
 
 class TestGetValidation:

@@ -42,37 +42,46 @@ _UPDATE_UNSUPPORTED_TYPES = (Page, Chunk)
 
 
 class _Pending:
-    """Internal unit-of-work staging queues.
+    """Internal unit-of-work queue, preserving insertion order across ops.
+
+    A single ordered list of ``(op, resource)`` pairs so a mixed sequence of
+    :meth:`Session.add`, :meth:`Session.update`, and :meth:`Session.delete`
+    calls flushes in exactly the order the caller staged them.
 
     Attributes:
-        added (list[_Resource]): Resources staged for creation.
-        dirty (list[_Resource]): Persisted resources staged for update.
-        deleted (list[_Resource]): Persisted resources staged for deletion.
+        ops (list[tuple[str, _Resource]]): Staged operations in insertion
+            order; ``op`` is one of ``"add"``, ``"update"``, ``"delete"``.
     """
 
-    added: list[_Resource]
-    dirty: list[_Resource]
-    deleted: list[_Resource]
+    ops: list[tuple[str, _Resource]]
 
     def __init__(self) -> None:
-        """Initialize empty staging queues."""
-        self.added = []
-        self.dirty = []
-        self.deleted = []
+        """Initialize an empty unit of work."""
+        self.ops = []
 
     def is_empty(self) -> bool:
-        """Report whether every staging queue is empty.
+        """Report whether the queue is empty.
 
         Returns:
-            bool: ``True`` if there is no staged work, ``False`` otherwise.
+            bool: ``True`` if nothing is staged, ``False`` otherwise.
         """
-        return not (self.added or self.dirty or self.deleted)
+        return not self.ops
 
     def clear(self) -> None:
-        """Drop every staged resource across all three queues."""
-        self.added.clear()
-        self.dirty.clear()
-        self.deleted.clear()
+        """Drop every staged operation."""
+        self.ops.clear()
+
+    def has(self, op: str, resource: _Resource) -> bool:
+        """Return ``True`` if ``resource`` is already staged for ``op``."""
+        return any(o == op and r is resource for o, r in self.ops)
+
+    def remove_add(self, resource: _Resource) -> bool:
+        """Drop a pending add of ``resource``. Returns ``True`` if removed."""
+        for i, (op, r) in enumerate(self.ops):
+            if op == "add" and r is resource:
+                self.ops.pop(i)
+                return True
+        return False
 
 
 def _as_uuid(value: UUID | str) -> UUID:
@@ -423,6 +432,25 @@ class Session:
         project_id = self._engine.project_id
 
         if resource_type is Document:
+            name = filters.get("name")
+
+            if name is not None:
+
+                def fetch_documents_by_name(
+                    skip: int, limit: int
+                ) -> PageResult[Document]:
+                    try:
+                        response = client.documents.get_by_name(
+                            name, project_id=project_id
+                        )
+                    except NotFoundError:
+                        return PageResult([], 0)
+                    if skip > 0:
+                        return PageResult([], 1)
+                    doc = self._bind(_build(Document, response))
+                    return PageResult([doc], 1)
+
+                return PaginatedIterator(fetch_documents_by_name)  # type: ignore[return-value]
 
             def fetch_documents(skip: int, limit: int) -> PageResult[Document]:
                 response = client.documents.list(
@@ -747,10 +775,9 @@ class Session:
                 f"Cannot add an already-persisted {type(resource).__name__}; "
                 "use session.update() instead"
             )
-        for existing in self._pending.added:
-            if existing is resource:
-                return
-        self._pending.added.append(resource)
+        if self._pending.has("add", resource):
+            return
+        self._pending.ops.append(("add", resource))
 
     def update(self, resource: _Resource) -> None:
         """Stage a persisted resource for update on the next :meth:`commit`.
@@ -783,10 +810,9 @@ class Session:
                 f"Cannot update an unpersisted {type(resource).__name__}; "
                 "it must have an id"
             )
-        for existing in self._pending.dirty:
-            if existing is resource:
-                return
-        self._pending.dirty.append(resource)
+        if self._pending.has("update", resource):
+            return
+        self._pending.ops.append(("update", resource))
 
     def delete(self, resource: _Resource) -> None:
         """Stage a resource for deletion on the next :meth:`commit`.
@@ -827,27 +853,24 @@ class Session:
             raise TypeError(
                 f"delete() does not support resource type {type(resource).__name__}"
             )
-        for i, existing in enumerate(self._pending.added):
-            if existing is resource:
-                self._pending.added.pop(i)
-                return
+        if self._pending.remove_add(resource):
+            return
         if _resource_id(resource) is None:
             raise ValidationError(
                 f"Cannot delete an unpersisted {type(resource).__name__}; "
                 "it must have an id"
             )
-        for existing in self._pending.deleted:
-            if existing is resource:
-                return
-        self._pending.deleted.append(resource)
+        if self._pending.has("delete", resource):
+            return
+        self._pending.ops.append(("delete", resource))
 
     def commit(self) -> None:
         """Flush every staged add / update / delete to the server.
 
-        Operations run sequentially in the order ``add``, ``update``,
-        ``delete`` (preserving insertion order within each group). Resources
-        passed to :meth:`add` are hydrated in place once their server write
-        succeeds.
+        Operations run sequentially in the exact order they were staged —
+        interleaved add/update/delete calls flush in the same order the
+        caller made them. Resources passed to :meth:`add` are hydrated in
+        place once their server write succeeds.
 
         The API has no transaction primitive: a mid-batch failure leaves
         earlier writes applied server-side. When that happens this method
@@ -868,20 +891,13 @@ class Session:
         if self._pending.is_empty():
             return
 
+        all_ops: list[tuple[str, _Resource]] = list(self._pending.ops)
+
+        for op, resource in all_ops:
+            if op == "add":
+                self._precheck_create(resource)
+
         committed: list[_Resource] = []
-        adds = list(self._pending.added)
-        updates = list(self._pending.dirty)
-        deletes = list(self._pending.deleted)
-
-        for resource in adds:
-            self._precheck_create(resource)
-
-        all_ops: list[tuple[str, _Resource]] = (
-            [("add", r) for r in adds]
-            + [("update", r) for r in updates]
-            + [("delete", r) for r in deletes]
-        )
-
         for i, (op, resource) in enumerate(all_ops):
             try:
                 if op == "add":

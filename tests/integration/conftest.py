@@ -21,7 +21,7 @@ from ragnerock import Engine, Session, create_engine
 
 def _build_conn_str() -> str | None:
     """Resolve a connection string from env. Returns None if config is incomplete."""
-    direct = os.environ.get("RAGNEROCK_CONN_STR")
+    direct = os.environ.get("RAGNEROCK_CONNECTION_STRING")
     if direct:
         return direct
 
@@ -43,7 +43,7 @@ def pytest_collection_modifyitems(config, items):
         return
     skip = pytest.mark.skip(
         reason=(
-            "No Ragnerock credentials configured — set RAGNEROCK_CONN_STR or "
+            "No Ragnerock credentials configured — set RAGNEROCK_CONNECTION_STRING or "
             "RAGNEROCK_HOST/EMAIL/PASSWORD/PROJECT to run integration tests."
         )
     )
@@ -82,7 +82,8 @@ def _ensure_credits(engine: Engine) -> None:
     except ValueError:
         pytest.fail(f"RAGNEROCK_ITEST_CREDITS must be an integer, got {raw!r}")
 
-    # Triggers login + project resolution on first access.
+    # Triggers login + project resolution.
+    engine._ensure_connected()
     client = engine.client
 
     balance_resp = client._request("GET", "/api/credits/balance")
