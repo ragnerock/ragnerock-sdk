@@ -7,11 +7,6 @@ on:
   workflow_dispatch:
 
 env:
-  PROJECT_ID: ragnerock-testing
-  REGION: us-central1
-  ENVIRONMENT: dev
-  WORKLOAD_IDENTITY_PROVIDER: projects/843664128510/locations/global/workloadIdentityPools/github-actions-pool/providers/github-ragnerock
-  WORKLOAD_SERVICE_ACCOUNT: github-ragnerock@ragnerock-testing.iam.gserviceaccount.com
   PYTHONUNBUFFERED: "1" # prevent output buffering
 
 jobs:
@@ -20,7 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
 
     steps:
       - name: Checkout
@@ -37,7 +31,7 @@ jobs:
       - name: Install go-task
         run: |
           curl -1sLf 'https://dl.cloudsmith.io/public/task/task/setup.deb.sh' | sudo -E bash
-          apt install task
+          sudo apt install task
 
       - name: Lint 
         run: |
@@ -73,6 +67,11 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
+
+      - name: Install go-task
+        run: |
+          curl -1sLf 'https://dl.cloudsmith.io/public/task/task/setup.deb.sh' | sudo -E bash
+          sudo apt install task
 
       - name: Run unit tests
         run: |
