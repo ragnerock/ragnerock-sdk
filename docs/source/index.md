@@ -2,34 +2,7 @@
 
 A SQLAlchemy-shaped client for the Ragnerock API. Connect with a URL, open a session, work with resource objects.
 
-```{toctree}
-:maxdepth: 1
-:caption: User guide:
-annotations.md
-connecting.md
-documents
-errors
-jobs
-operators
-queries
-sessions
-workflows
-```
-
-```{toctree}
-:maxdepth: 2
-:caption: API reference:
-api/ragnerock
-api/engine
-api/session
-api/client
-api/errors
-api/query_result
-api/iterator
-api/resources
-```
-
-## Install
+## Installation
 
 ```bash
 pip install ragnerock
@@ -61,4 +34,31 @@ with Session(engine) as session:
     # query
     result = session.query("SELECT * FROM invoice_extract WHERE total > 1000")
     df = result.to_pandas()
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: User guide:
+annotations.md
+connecting.md
+documents
+errors
+jobs
+operators
+queries
+sessions
+workflows
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: API reference:
+api/ragnerock
+api/engine
+api/session
+api/client
+api/errors
+api/query_result
+api/iterator
+api/resources
 ```

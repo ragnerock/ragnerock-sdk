@@ -80,5 +80,38 @@ myst_heading_anchors = 3
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = "sphinx_rtd_theme"
+html_theme = "furo"
+html_title = "Ragnerock"
 html_static_path = ["_static"]
+html_css_files = ["ragnerock.css"]
+html_favicon = "_static/favicon.svg"
+html_logo = "_static/ragnerock-logo.svg"
+
+# Furo theme options
+html_theme_options = {
+    "sidebar_hide_name": True,
+    "light_css_variables": {
+        "color-brand-primary": "#3b7ef0",
+        "color-brand-content": "#2563eb",
+        "font-stack": "Inter, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif",
+        "font-stack--monospace": "'JetBrains Mono', 'SF Mono', Monaco, Consolas, 'Liberation Mono', monospace",
+    },
+    "dark_css_variables": {
+        "color-brand-primary": "#3b7ef0",
+        "color-brand-content": "#5c9ef3",
+        "font-stack": "Inter, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif",
+        "font-stack--monospace": "'JetBrains Mono', 'SF Mono', Monaco, Consolas, 'Liberation Mono', monospace",
+    },
+    "footer_icons": [
+        {
+            "name": "Ragnerock",
+            "url": "https://ragnerock.com",
+            "html": "ragnerock.com",
+            "class": "",
+        },
+    ],
+}
+
+# Default to dark mode to match the site.
+pygments_style = "default"
+pygments_dark_style = "monokai"

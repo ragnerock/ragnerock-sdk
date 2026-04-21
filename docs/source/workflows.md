@@ -7,7 +7,7 @@ Workflows are a DAG of operators which are designed to process the documents pro
 
 Upon the successful execution of the workflow, a resulting [job](jobs.md) will be created
 
-# Accessing existing workflows
+## Accessing existing workflows
 
 Workflows can be listed via the folllowing
 
