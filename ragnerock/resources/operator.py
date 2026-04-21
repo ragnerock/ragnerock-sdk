@@ -14,20 +14,9 @@ class Operator(_Resource):
     """An annotation operator: a JSON schema + LLM prompt that produces annotations.
 
     Operators define how annotations are generated. Their ``name`` becomes a
-    queryable table in ``session.query(...)``.
-
-    Attributes:
-        id: Server-assigned UUID. ``None`` until committed.
-        project_id: Owning project.
-        name: Unique identifier used as the query table name.
-        description: Human-readable description.
-        jsonschema: JSON Schema describing the shape of each annotation.
-        generation_prompt: LLM prompt used to produce annotations.
-        chunk_type: Scope at which this operator runs (DOCUMENT / PAGE / …).
-        batch_size: Batch size for annotation generation, if any.
-        multi_annotation: Whether the operator may produce multiple annotations
-            per input chunk.
-        created_at: Creation timestamp.
+    queryable table on :meth:`~ragnerock.session.Session.query`, and their
+    ``jsonschema`` constrains the :class:`~ragnerock.resources.annotation.Annotation`
+    payloads the operator emits.
     """
 
     id: UUID | None = None

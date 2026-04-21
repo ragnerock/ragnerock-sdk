@@ -11,12 +11,25 @@ if TYPE_CHECKING:
 class QueryResult:
     """Result of ``session.query(...)``.
 
+    Rows are held eagerly in memory. Access them via :attr:`data` (a list of
+    column-keyed dicts), via :meth:`to_dict`, or convert to a DataFrame with
+    :meth:`to_pandas`. Iterate rows directly by iterating :attr:`data`, and
+    use ``len(result)`` to get the row count.
+
     Attributes:
-        columns (list[str]): Column names in the result set.
-        data (list[dict[str, Any]]): Rows as a list of dicts (one per row).
+        columns (list[str]): Column names in the result set, in server order.
+        data (list[dict[str, Any]]): Rows as a list of dicts keyed by column
+            name. Iterate this attribute to walk rows.
         row_count (int): Number of rows returned.
-        query_time_ms (int | None): Server-reported execution time, if
-            available.
+        query_time_ms (int | None): Server-reported execution time in
+            milliseconds, if available.
+
+    Example::
+
+        result = session.query("SELECT id, name FROM annotations LIMIT 10")
+        for row in result.data:
+            print(row["name"])
+        df = result.to_pandas()
     """
 
     def __init__(

@@ -1,4 +1,4 @@
-"""Annotation resource (exposed as ``Annotation`` — the API calls these Document Annotations)."""
+"""Annotation resource for operator-produced annotations on documents, chunks, or pages."""
 
 from __future__ import annotations
 
@@ -13,25 +13,9 @@ class Annotation(_Resource):
     """An annotation produced by an operator, attached to a document, chunk, or page.
 
     Exactly one of ``document_id``, ``chunk_id``, or ``page_id`` is typically
-    set, depending on the operator's chunk_type.
-
-    Attributes:
-        root_id (UUID | None): Stable annotation identity (server-assigned).
-        operator_id (UUID | None): Operator that produced (or will produce)
-            this annotation.
-        operator_name (str | None): Cached operator name, when the server
-            hydrates it.
-        document_id (UUID | None): Document this annotation is attached to.
-        chunk_id (UUID | None): Chunk this annotation is attached to.
-        page_id (UUID | None): Page this annotation is attached to.
-        data (dict[str, Any] | None): Arbitrary JSON matching the operator's
-            schema.
-        confidence_score (float | None): Optional confidence value
-            (0.0 – 1.0).
-        generation_metadata (dict[str, Any] | None): Optional server-side
-            metadata about how the annotation was generated.
-        created_at (datetime | None): Creation timestamp.
-        updated_at (datetime | None): Last-modified timestamp.
+    set, depending on the operator's ``chunk_type``. The server-assigned
+    identity is carried on ``root_id``; the :attr:`id` property exposes it
+    under the same name used by every other resource.
     """
 
     root_id: UUID | None = None

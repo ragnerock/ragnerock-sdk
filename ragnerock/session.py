@@ -13,7 +13,6 @@ from uuid import UUID
 from ragnerock.errors import (
     CommitError,
     NotFoundError,
-    RagnerockError,
     ValidationError,
 )
 from ragnerock.iterator import PageResult, PaginatedIterator
@@ -21,7 +20,6 @@ from ragnerock.query_result import QueryResult
 from ragnerock.resources import (
     Annotation,
     Chunk,
-    ChunkType,
     Document,
     DocumentGroup,
     Job,
@@ -29,6 +27,7 @@ from ragnerock.resources import (
     Operator,
     Page,
     Workflow,
+    WorkflowNode,
 )
 from ragnerock.resources.base import _Resource
 
@@ -197,6 +196,8 @@ class Session:
         *,
         id: UUID | str | None = None,
         name: str | None = None,
+        workflow_id: UUID | str | None = None,
+        workflow_name: str | None = None,
     ) -> T | None:
         """Fetch a single resource by id or name.
 
@@ -204,14 +205,25 @@ class Session:
         type supports name lookup: :class:`DocumentGroup`, :class:`Chunk`,
         :class:`Page`, :class:`Annotation`, and :class:`Job` are id-only.
         :class:`Operator` and :class:`Workflow` support name lookup by
-        listing and matching client-side.
+        listing and matching client-side. :class:`WorkflowNode` requires the
+        parent workflow via either ``workflow_id=`` or ``workflow_name=``;
+        the server has no standalone node endpoint, so this fetches the
+        parent workflow and returns the matching node. Node ``name=`` lookup
+        matches against ``operator_name`` and returns the first match.
 
         Args:
             resource_type (type[T]): The resource class to fetch.
             id (UUID | str | None): Server-assigned UUID (or its string
                 form) to look up.
             name (str | None): Human-readable name to look up (where
-                supported).
+                supported). For :class:`WorkflowNode`, matches
+                ``operator_name``.
+            workflow_id (UUID | str | None): Parent workflow id. Required
+                when ``resource_type`` is :class:`WorkflowNode` unless
+                ``workflow_name=`` is given.
+            workflow_name (str | None): Parent workflow name, as an
+                alternative to ``workflow_id=`` for :class:`WorkflowNode`
+                lookups.
 
         Returns:
             T | None: The resource bound to this session, or ``None`` if
@@ -233,7 +245,8 @@ class Session:
                     response = client.documents.get(_as_uuid(id))
                 else:
                     response = client.documents.get_by_name(
-                        name, project_id=self._engine.project_id  # type: ignore[arg-type]
+                        name,
+                        project_id=self._engine.project_id,  # type: ignore[arg-type]
                     )
             except NotFoundError:
                 return None
@@ -305,6 +318,33 @@ class Session:
             return self._find_by_name_via_list(  # type: ignore[return-value]
                 Workflow, name, _fetch_operator_by_id=client.workflows.get
             )
+
+        if resource_type is WorkflowNode:
+            if workflow_id is None and workflow_name is None:
+                raise ValidationError(
+                    "WorkflowNode get requires workflow_id= or workflow_name="
+                )
+            if workflow_id is not None:
+                try:
+                    wf_response = client.workflows.get(_as_uuid(workflow_id))
+                except NotFoundError:
+                    return None
+                workflow = _build(Workflow, wf_response)
+            else:
+                parent = self.get(Workflow, name=workflow_name)
+                if parent is None:
+                    return None
+                workflow = parent
+            if id is not None:
+                target_id = _as_uuid(id)
+                for node in workflow.nodes:
+                    if node.id == target_id:
+                        return self._bind(node)  # type: ignore[return-value]
+                return None
+            for node in workflow.nodes:
+                if node.operator_name == name:
+                    return self._bind(node)  # type: ignore[return-value]
+            return None
 
         raise TypeError(f"get() does not support resource type {resource_type!r}")
 
@@ -382,21 +422,23 @@ class Session:
         project_id = self._engine.project_id
 
         if resource_type is Document:
+
             def fetch(skip: int, limit: int) -> PageResult[Document]:
                 response = client.documents.list(
                     project_ids=str(project_id), skip=skip, limit=limit
                 )
                 items = [self._bind(_build(Document, r)) for r in response.documents]
                 return PageResult(items, response.total)
+
             return PaginatedIterator(fetch)  # type: ignore[return-value]
 
         if resource_type is DocumentGroup:
+
             def fetch(skip: int, limit: int) -> PageResult[DocumentGroup]:
                 response = client.groups.list(project_id, skip=skip, limit=limit)
-                items = [
-                    self._bind(_build(DocumentGroup, r)) for r in response.groups
-                ]
+                items = [self._bind(_build(DocumentGroup, r)) for r in response.groups]
                 return PageResult(items, response.total)
+
             return PaginatedIterator(fetch)  # type: ignore[return-value]
 
         if resource_type is Chunk:
@@ -410,6 +452,7 @@ class Session:
                 )
                 items = [self._bind(_build(Chunk, r)) for r in response.chunks]
                 return PageResult(items, response.total)
+
             return PaginatedIterator(fetch)  # type: ignore[return-value]
 
         if resource_type is Page:
@@ -423,31 +466,32 @@ class Session:
                 )
                 items = [self._bind(_build(Page, r)) for r in response.pages]
                 return PageResult(items, response.total)
+
             return PaginatedIterator(fetch)  # type: ignore[return-value]
 
         if resource_type is Annotation:
             return self._list_annotations(**filters)  # type: ignore[return-value]
 
         if resource_type is Operator:
+
             def fetch(skip: int, limit: int) -> PageResult[Operator]:
                 response = client.operators.list(
                     project_ids=str(project_id), skip=skip, limit=limit
                 )
-                items = [
-                    self._bind(_build(Operator, r)) for r in response.operators
-                ]
+                items = [self._bind(_build(Operator, r)) for r in response.operators]
                 return PageResult(items, response.total)
+
             return PaginatedIterator(fetch)  # type: ignore[return-value]
 
         if resource_type is Workflow:
+
             def fetch(skip: int, limit: int) -> PageResult[Workflow]:
                 response = client.workflows.list(
                     project_ids=str(project_id), skip=skip, limit=limit
                 )
-                items = [
-                    self._bind(_build(Workflow, r)) for r in response.workflows
-                ]
+                items = [self._bind(_build(Workflow, r)) for r in response.workflows]
                 return PageResult(items, response.total)
+
             return PaginatedIterator(fetch)  # type: ignore[return-value]
 
         if resource_type is Job:
@@ -468,6 +512,7 @@ class Session:
                 )
                 items = [self._bind(_build(Job, r)) for r in response.jobs]
                 return PageResult(items, response.total)
+
             return PaginatedIterator(fetch)  # type: ignore[return-value]
 
         raise TypeError(f"list() does not support resource type {resource_type!r}")
@@ -509,10 +554,10 @@ class Session:
                         doc_id, op_id, skip=skip, limit=limit
                     )
                     items = [
-                        self._bind(_build(Annotation, r))
-                        for r in response.annotations
+                        self._bind(_build(Annotation, r)) for r in response.annotations
                     ]
                     return PageResult(items, response.total)
+
                 return PaginatedIterator(fetch)
 
             if operator_name is not None:
@@ -523,10 +568,10 @@ class Session:
                         doc_id, operator_name, skip=skip, limit=limit
                     )
                     items = [
-                        self._bind(_build(Annotation, r))
-                        for r in response.annotations
+                        self._bind(_build(Annotation, r)) for r in response.annotations
                     ]
                     return PageResult(items, response.total)
+
                 return PaginatedIterator(fetch)
 
             doc_id = _as_uuid(document_id)
@@ -539,33 +584,34 @@ class Session:
                     self._bind(_build(Annotation, r)) for r in response.annotations
                 ]
                 return PageResult(items, response.total)
+
             return PaginatedIterator(fetch)
 
         if chunk_id is not None:
             cid = _as_uuid(chunk_id)
 
             def fetch(skip: int, limit: int) -> PageResult[Annotation]:
-                response = client.annotations.list_by_chunk(
-                    cid, skip=skip, limit=limit
-                )
+                response = client.annotations.list_by_chunk(cid, skip=skip, limit=limit)
                 items = [
                     self._bind(_build(Annotation, r)) for r in response.annotations
                 ]
                 return PageResult(items, response.total)
+
             return PaginatedIterator(fetch)
 
         if operator_id is not None:
             oid = _as_uuid(operator_id)
             if hydrated:
+
                 def fetch(skip: int, limit: int) -> PageResult[Annotation]:
                     response = client.annotations.list_hydrated_by_operator(
                         oid, skip=skip, limit=limit
                     )
                     items = [
-                        self._bind(_build(Annotation, r))
-                        for r in response.annotations
+                        self._bind(_build(Annotation, r)) for r in response.annotations
                     ]
                     return PageResult(items, response.total)
+
                 return PaginatedIterator(fetch)
 
             def fetch(skip: int, limit: int) -> PageResult[Annotation]:
@@ -576,6 +622,7 @@ class Session:
                     self._bind(_build(Annotation, r)) for r in response.annotations
                 ]
                 return PageResult(items, response.total)
+
             return PaginatedIterator(fetch)
 
         raise ValidationError(
@@ -674,16 +721,22 @@ class Session:
             TypeError: If the resource type is otherwise unsupported.
         """
         if isinstance(resource, _READ_ONLY_TYPES):
-            raise ValidationError(
-                f"{type(resource).__name__} is read-only; cannot add"
-            )
+            raise ValidationError(f"{type(resource).__name__} is read-only; cannot add")
         if isinstance(resource, Job):
             raise ValidationError(
                 "Jobs cannot be added directly; use session.run(workflow, documents=[...])"
             )
         if not isinstance(
             resource,
-            (Document, DocumentGroup, Chunk, Annotation, Operator, Workflow),
+            (
+                Document,
+                DocumentGroup,
+                Chunk,
+                Annotation,
+                Operator,
+                Workflow,
+                WorkflowNode,
+            ),
         ):
             raise TypeError(
                 f"add() does not support resource type {type(resource).__name__}"
@@ -716,12 +769,10 @@ class Session:
             TypeError: If the resource type is otherwise unsupported.
         """
         if isinstance(resource, _UPDATE_UNSUPPORTED_TYPES):
-            raise ValidationError(
-                f"{type(resource).__name__} does not support update"
-            )
+            raise ValidationError(f"{type(resource).__name__} does not support update")
         if not isinstance(
             resource,
-            (Document, DocumentGroup, Annotation, Operator, Workflow),
+            (Document, DocumentGroup, Annotation, Operator, Workflow, WorkflowNode),
         ):
             raise TypeError(
                 f"update() does not support resource type {type(resource).__name__}"
@@ -762,7 +813,15 @@ class Session:
             )
         if not isinstance(
             resource,
-            (Document, DocumentGroup, Chunk, Annotation, Operator, Workflow),
+            (
+                Document,
+                DocumentGroup,
+                Chunk,
+                Annotation,
+                Operator,
+                Workflow,
+                WorkflowNode,
+            ),
         ):
             raise TypeError(
                 f"delete() does not support resource type {type(resource).__name__}"
@@ -873,6 +932,11 @@ class Session:
                 raise ValidationError(
                     "Annotation create requires one of document_id, chunk_id, or page_id"
                 )
+        elif isinstance(resource, WorkflowNode):
+            if resource.workflow_id is None:
+                raise ValidationError("WorkflowNode create requires workflow_id")
+            if resource.operator_id is None:
+                raise ValidationError("WorkflowNode create requires operator_id")
 
     def refresh(self, resource: _Resource) -> None:
         """Re-fetch a persisted resource and overwrite its fields in place.
@@ -973,9 +1037,7 @@ class Session:
         if isinstance(resource, DocumentGroup):
             if not resource.name:
                 raise ValidationError("DocumentGroup create requires name")
-            response = client.groups.create(
-                self._engine.project_id, name=resource.name
-            )
+            response = client.groups.create(self._engine.project_id, name=resource.name)
             _copy_fields(resource, response)
             self._bind(resource)
             return
@@ -984,9 +1046,7 @@ class Session:
             if resource.document_id is None:
                 raise ValidationError("Chunk create requires document_id")
             if resource.start_index is None or resource.end_index is None:
-                raise ValidationError(
-                    "Chunk create requires start_index and end_index"
-                )
+                raise ValidationError("Chunk create requires start_index and end_index")
             response = client.chunks.create(
                 document_id=resource.document_id,
                 start_index=resource.start_index,
@@ -1058,9 +1118,24 @@ class Session:
             self._bind(resource)
             return
 
-        raise TypeError(
-            f"create dispatch not supported for {type(resource).__name__}"
-        )
+        if isinstance(resource, WorkflowNode):
+            if resource.workflow_id is None:
+                raise ValidationError("WorkflowNode create requires workflow_id")
+            if resource.operator_id is None:
+                raise ValidationError("WorkflowNode create requires operator_id")
+            response = client.workflows.add_node(
+                resource.workflow_id,
+                operator_id=resource.operator_id,
+                condition=resource.condition,
+                persist=resource.persist,
+                on_error=resource.on_error,
+                max_retries=resource.max_retries,
+            )
+            _copy_fields(resource, response)
+            self._bind(resource)
+            return
+
+        raise TypeError(f"create dispatch not supported for {type(resource).__name__}")
 
     def _update_resource(self, resource: _Resource) -> None:
         """Issue the appropriate update call for ``resource`` and hydrate it.
@@ -1113,7 +1188,9 @@ class Session:
                 description=resource.description,
                 jsonschema=resource.jsonschema,
                 generation_prompt=resource.generation_prompt,
-                chunk_type=int(resource.chunk_type) if resource.chunk_type is not None else None,
+                chunk_type=int(resource.chunk_type)
+                if resource.chunk_type is not None
+                else None,
                 batch_size=resource.batch_size,
                 multi_annotation=resource.multi_annotation,
             )
@@ -1131,9 +1208,23 @@ class Session:
             _copy_fields(resource, response)
             return
 
-        raise TypeError(
-            f"update dispatch not supported for {type(resource).__name__}"
-        )
+        if isinstance(resource, WorkflowNode):
+            if resource.workflow_id is None or resource.id is None:
+                raise ValidationError("WorkflowNode update requires workflow_id and id")
+            response = client.workflows.update_node(
+                resource.workflow_id,
+                resource.id,
+                condition=resource.condition,
+                persist=resource.persist,
+                on_error=resource.on_error,
+                max_retries=resource.max_retries,
+                in_nodes=list(resource.in_nodes),
+                out_nodes=list(resource.out_nodes),
+            )
+            _copy_fields(resource, response)
+            return
+
+        raise TypeError(f"update dispatch not supported for {type(resource).__name__}")
 
     def _delete_resource(self, resource: _Resource) -> None:
         """Issue the appropriate delete call for ``resource``.
@@ -1169,10 +1260,13 @@ class Session:
         if isinstance(resource, Workflow):
             client.workflows.delete(resource.id)  # type: ignore[arg-type]
             return
+        if isinstance(resource, WorkflowNode):
+            if resource.workflow_id is None or resource.id is None:
+                raise ValidationError("WorkflowNode delete requires workflow_id and id")
+            client.workflows.delete_node(resource.workflow_id, resource.id)
+            return
 
-        raise TypeError(
-            f"delete dispatch not supported for {type(resource).__name__}"
-        )
+        raise TypeError(f"delete dispatch not supported for {type(resource).__name__}")
 
     # -- internal --------------------------------------------------------------
 
@@ -1251,6 +1345,7 @@ class Session:
                         self._bind(_build(Document, r)) for r in response.documents
                     ]
                     return PageResult(items, response.total)
+
                 return PaginatedIterator(fetch)  # type: ignore[return-value]
 
         if isinstance(parent, Operator):
@@ -1263,9 +1358,7 @@ class Session:
                         operator_id=parent.id,
                     )
                 hydrated = kwargs.get("hydrated", False)
-                return self.list(
-                    Annotation, operator_id=parent.id, hydrated=hydrated
-                )
+                return self.list(Annotation, operator_id=parent.id, hydrated=hydrated)
 
         raise TypeError(
             f"{type(parent).__name__} does not support list({resource_type.__name__})"
@@ -1299,9 +1392,9 @@ def _build(resource_type: type[T], response: Any) -> T:
     elif isinstance(response, dict):
         data = dict(response)
     else:
-        raise TypeError(f"Cannot build {resource_type.__name__} from {type(response)!r}")
+        raise TypeError(
+            f"Cannot build {resource_type.__name__} from {type(response)!r}"
+        )
 
-    filtered = {
-        k: v for k, v in data.items() if k in resource_type.model_fields
-    }
+    filtered = {k: v for k, v in data.items() if k in resource_type.model_fields}
     return resource_type(**filtered)

@@ -11,29 +11,30 @@ from ragnerock.resources.base import _Resource
 
 
 class ChunkType(IntEnum):
-    """Chunk scope. Mirrors the server-side enum values.
-
-    The numeric values match the API's integer enum.
-    """
+    """Chunk scope. Mirrors the server-side integer enum values."""
 
     DOCUMENT = 1
+    """Whole-document scope."""
+
     PAGE = 2
+    """Per-page scope."""
+
     SECTION = 3
+    """Section-level scope."""
+
     PARAGRAPH = 4
+    """Paragraph-level scope."""
+
     SENTENCE = 5
+    """Sentence-level scope."""
 
 
 class Chunk(_Resource):
     """A content slice within a document.
 
-    Attributes:
-        id: Server-assigned UUID. ``None`` until committed.
-        document_id: Owning document.
-        content: Text content of the chunk.
-        start_index: Character offset where the chunk begins in the document.
-        end_index: Character offset where the chunk ends (exclusive).
-        chunk_type: Chunk scope (DOCUMENT / PAGE / SECTION / …).
-        metadata: Arbitrary key-value metadata.
+    A chunk carries the extracted text for a range of a document along with
+    its offsets and scope (:class:`ChunkType`). Chunks are typically produced
+    by server-side ingestion and are the unit of work many operators run on.
     """
 
     id: UUID | None = None

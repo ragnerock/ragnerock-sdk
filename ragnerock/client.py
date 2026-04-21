@@ -13,20 +13,32 @@ from ragnerock.errors import raise_for_status
 
 
 class _ApiModel(BaseModel):
+    """Base pydantic model for Ragnerock API response payloads.
+
+    Allows extra fields so the SDK stays forward-compatible with additive
+    server-side schema changes.
+    """
+
     model_config = ConfigDict(extra="allow")
 
 
 class AuthTokenResponse(_ApiModel):
+    """Response payload for the login endpoint, carrying a bearer token."""
+
     access_token: str
     token_type: str = "bearer"
 
 
 class ProjectResponse(_ApiModel):
+    """Response payload representing a single project."""
+
     id: UUID
     name: str
 
 
 class ProjectListResponse(_ApiModel):
+    """Paginated list response for projects."""
+
     projects: list[ProjectResponse]
     total: int
     skip: int
@@ -34,12 +46,16 @@ class ProjectListResponse(_ApiModel):
 
 
 class DocumentResponse(_ApiModel):
+    """Response payload representing a single document."""
+
     id: UUID
     project_id: UUID
     name: str
 
 
 class DocumentListResponse(_ApiModel):
+    """Paginated list response for documents."""
+
     documents: list[DocumentResponse]
     total: int
     skip: int
@@ -47,12 +63,16 @@ class DocumentListResponse(_ApiModel):
 
 
 class DocumentGroupResponse(_ApiModel):
+    """Response payload representing a single document group."""
+
     id: UUID
     project_id: UUID | None = None
     name: str
 
 
 class DocumentGroupListResponse(_ApiModel):
+    """Paginated list response for document groups."""
+
     groups: list[DocumentGroupResponse]
     total: int
     skip: int
@@ -60,11 +80,15 @@ class DocumentGroupListResponse(_ApiModel):
 
 
 class ChunkResponse(_ApiModel):
+    """Response payload representing a single chunk."""
+
     id: UUID
     document_id: UUID
 
 
 class ChunkListResponse(_ApiModel):
+    """Paginated list response for chunks."""
+
     chunks: list[ChunkResponse]
     total: int
     skip: int
@@ -72,12 +96,16 @@ class ChunkListResponse(_ApiModel):
 
 
 class PageResponse(_ApiModel):
+    """Response payload representing a single extracted document page."""
+
     id: UUID
     document_id: UUID
     page_number: int
 
 
 class PageListResponse(_ApiModel):
+    """Paginated list response for pages."""
+
     pages: list[PageResponse]
     total: int
     skip: int
@@ -85,11 +113,15 @@ class PageListResponse(_ApiModel):
 
 
 class AnnotationResponse(_ApiModel):
+    """Response payload representing a single annotation."""
+
     root_id: UUID
     operator_id: UUID
 
 
 class AnnotationListResponse(_ApiModel):
+    """Paginated list response for annotations."""
+
     annotations: list[AnnotationResponse]
     total: int
     skip: int
@@ -97,12 +129,16 @@ class AnnotationListResponse(_ApiModel):
 
 
 class OperatorResponse(_ApiModel):
+    """Response payload representing a single operator."""
+
     id: UUID
     project_id: UUID | None = None
     name: str
 
 
 class OperatorListResponse(_ApiModel):
+    """Paginated list response for operators."""
+
     operators: list[OperatorResponse]
     total: int
     skip: int
@@ -110,12 +146,16 @@ class OperatorListResponse(_ApiModel):
 
 
 class WorkflowResponse(_ApiModel):
+    """Response payload representing a single workflow."""
+
     id: UUID
     project_id: UUID | None = None
     name: str
 
 
 class WorkflowListResponse(_ApiModel):
+    """Paginated list response for workflows."""
+
     workflows: list[WorkflowResponse]
     total: int
     skip: int
@@ -123,17 +163,23 @@ class WorkflowListResponse(_ApiModel):
 
 
 class WorkflowNodeResponse(_ApiModel):
+    """Response payload representing a single workflow node."""
+
     id: UUID
     workflow_id: UUID
     operator_id: UUID
 
 
 class JobResponse(_ApiModel):
+    """Response payload representing a single job."""
+
     id: UUID
     status: int
 
 
 class JobListResponse(_ApiModel):
+    """Paginated list response for jobs."""
+
     jobs: list[JobResponse]
     total: int
     skip: int
@@ -141,15 +187,25 @@ class JobListResponse(_ApiModel):
 
 
 class JobActionResponse(_ApiModel):
+    """Response payload for a job lifecycle action (cancel, retry)."""
+
     job_id: UUID
     status: str
 
 
 class CreateManualJobsResponse(_ApiModel):
+    """Response payload returned when creating one or more manual jobs."""
+
     job_ids: list[UUID]
 
 
 class QueryResultResponse(_ApiModel):
+    """Response payload for an annotation SQL query.
+
+    Carries the result columns, row data, row count, and optional
+    server-reported execution time.
+    """
+
     columns: list[str]
     data: list[dict[str, Any]]
     row_count: int
@@ -261,20 +317,24 @@ class RagnerockClient:
         """Issue an HTTP request and raise SDK errors on non-2xx responses.
 
         Centralizes ``None``-filtering for query strings and form bodies, and
-        converts any 4xx/5xx into the matching :class:`RagnerockError`
-        subclass via :func:`raise_for_status`.
+        converts any 4xx/5xx into the matching
+        :class:`~ragnerock.errors.RagnerockError` subclass via
+        :func:`~ragnerock.errors.raise_for_status`.
 
         Args:
             method (str): HTTP verb (``GET``, ``POST``, ``PUT``, ``DELETE``).
             path (str): Path relative to the client's base URL.
-            params (dict[str, Any] | None): Query-string parameters. ``None`` values are dropped.
+            params (dict[str, Any] | None): Query-string parameters. ``None``
+                values are dropped.
             json_body (Any): Request body to serialize as JSON.
-            data (dict[str, Any] | None): Form-urlencoded or multipart body fields. ``None`` values
-                are dropped.
-            files (dict[str, Any] | None): Multipart file parts, passed straight through to httpx.
+            data (dict[str, Any] | None): Form-urlencoded or multipart body
+                fields. ``None`` values are dropped.
+            files (dict[str, Any] | None): Multipart file parts, passed
+                straight through to httpx.
 
         Returns:
-            httpx.Response: The underlying :class:`httpx.Response` for 2xx/3xx replies.
+            httpx.Response: The underlying :class:`httpx.Response` for 2xx/3xx
+            replies.
 
         Raises:
             RagnerockError: Or a subclass, for any response with status >= 400.
@@ -443,9 +503,7 @@ class _ProjectsSection(_Section):
         Returns:
             ProjectListResponse: A list response (possibly empty).
         """
-        response = self._parent._request(
-            "GET", f"/api/projects/name/{project_name}"
-        )
+        response = self._parent._request("GET", f"/api/projects/name/{project_name}")
         return ProjectListResponse.model_validate(response.json())
 
 
@@ -496,9 +554,7 @@ class _DocumentsSection(_Section):
         response = self._parent._request("GET", f"/api/documents/{document_id}")
         return DocumentResponse.model_validate(response.json())
 
-    def get_by_name(
-        self, document_name: str, project_id: UUID
-    ) -> DocumentResponse:
+    def get_by_name(self, document_name: str, project_id: UUID) -> DocumentResponse:
         """Fetch a document by name within a project.
 
         Calls ``GET /api/documents/name/{document_name}``. Names are unique
@@ -650,9 +706,7 @@ class _DocumentsSection(_Section):
         Returns:
             bytes: The raw file bytes.
         """
-        response = self._parent._request(
-            "GET", f"/api/documents/{document_id}/content"
-        )
+        response = self._parent._request("GET", f"/api/documents/{document_id}/content")
         return response.content
 
     def list_by_group(
@@ -775,9 +829,7 @@ class _GroupsSection(_Section):
             project_id (UUID): Owning project.
             group_id (UUID): Group to delete.
         """
-        self._parent._request(
-            "DELETE", f"/api/projects/{project_id}/groups/{group_id}"
-        )
+        self._parent._request("DELETE", f"/api/projects/{project_id}/groups/{group_id}")
 
     def list_documents(
         self, group_id: UUID, *, skip: int = 0, limit: int = 100
@@ -785,7 +837,7 @@ class _GroupsSection(_Section):
         """List documents in a group.
 
         Calls ``GET /api/documents/group/{group_id}``. This is the same
-        endpoint as :meth:`_DocumentsSection.list_by_group`; it's exposed
+        endpoint as :meth:`~._DocumentsSection.list_by_group`; it's exposed
         here as well so callers working at the group level don't have to
         reach across sections.
 
@@ -886,9 +938,7 @@ class _ChunksSection(_Section):
             body["content"] = content
         if metadata is not None:
             body["metadata"] = metadata
-        response = self._parent._request(
-            "POST", "/api/chunks/", json_body=body
-        )
+        response = self._parent._request("POST", "/api/chunks/", json_body=body)
         return ChunkResponse.model_validate(response.json())
 
     def delete(self, chunk_id: UUID) -> None:
@@ -963,9 +1013,7 @@ class _AnnotationsSection(_Section):
         Raises:
             NotFoundError: If no annotation has that id.
         """
-        response = self._parent._request(
-            "GET", f"/api/annotations/{root_id}"
-        )
+        response = self._parent._request("GET", f"/api/annotations/{root_id}")
         return AnnotationResponse.model_validate(response.json())
 
     def create(
@@ -1008,9 +1056,7 @@ class _AnnotationsSection(_Section):
             body["page_id"] = str(page_id)
         if confidence_score is not None:
             body["confidence_score"] = confidence_score
-        response = self._parent._request(
-            "POST", "/api/annotations/", json_body=body
-        )
+        response = self._parent._request("POST", "/api/annotations/", json_body=body)
         return AnnotationResponse.model_validate(response.json())
 
     def update(
@@ -1280,9 +1326,7 @@ class _OperatorsSection(_Section):
         Raises:
             NotFoundError: If no operator has that id.
         """
-        response = self._parent._request(
-            "GET", f"/api/operators/{operator_id}"
-        )
+        response = self._parent._request("GET", f"/api/operators/{operator_id}")
         return OperatorResponse.model_validate(response.json())
 
     def create(
@@ -1329,9 +1373,7 @@ class _OperatorsSection(_Section):
             body["description"] = description
         if batch_size is not None:
             body["batch_size"] = batch_size
-        response = self._parent._request(
-            "POST", "/api/operators/", json_body=body
-        )
+        response = self._parent._request("POST", "/api/operators/", json_body=body)
         return OperatorResponse.model_validate(response.json())
 
     def update(
@@ -1445,9 +1487,7 @@ class _WorkflowsSection(_Section):
         Raises:
             NotFoundError: If no workflow has that id.
         """
-        response = self._parent._request(
-            "GET", f"/api/workflows/{workflow_id}"
-        )
+        response = self._parent._request("GET", f"/api/workflows/{workflow_id}")
         return WorkflowResponse.model_validate(response.json())
 
     def create(
@@ -1483,9 +1523,7 @@ class _WorkflowsSection(_Section):
         }
         if description is not None:
             body["description"] = description
-        response = self._parent._request(
-            "POST", "/api/workflows/", json_body=body
-        )
+        response = self._parent._request("POST", "/api/workflows/", json_body=body)
         return WorkflowResponse.model_validate(response.json())
 
     def update(
@@ -1712,9 +1750,7 @@ class _JobsSection(_Section):
             "workflow_ids": [str(x) for x in workflow_ids],
             "capture_execution_log": capture_execution_log,
         }
-        response = self._parent._request(
-            "POST", "/api/jobs/", json_body=body
-        )
+        response = self._parent._request("POST", "/api/jobs/", json_body=body)
         return CreateManualJobsResponse.model_validate(response.json())
 
     def cancel(self, job_id: UUID) -> JobActionResponse:
@@ -1729,9 +1765,7 @@ class _JobsSection(_Section):
         Returns:
             JobActionResponse: The action response with the resulting status.
         """
-        response = self._parent._request(
-            "POST", f"/api/jobs/{job_id}/cancel"
-        )
+        response = self._parent._request("POST", f"/api/jobs/{job_id}/cancel")
         return JobActionResponse.model_validate(response.json())
 
     def retry(self, job_id: UUID) -> JobActionResponse:
@@ -1746,9 +1780,7 @@ class _JobsSection(_Section):
         Returns:
             JobActionResponse: The action response with the resulting status.
         """
-        response = self._parent._request(
-            "POST", f"/api/jobs/{job_id}/retry"
-        )
+        response = self._parent._request("POST", f"/api/jobs/{job_id}/retry")
         return JobActionResponse.model_validate(response.json())
 
 

@@ -22,6 +22,11 @@ dev = [
     "pytest>=8",
     "pytest-httpx>=0.35",
     "pandas>=2.0",
+    "sphinx>=9.1.0",
+    "sphinx-rtd-theme>=3.1.0",
+    "myst-parser>=5.0.0",
+    "ruff>=0.15.11",
+    "pyright>=1.1.408",
 ]
 
 [build-system]
@@ -32,5 +37,6 @@ build-backend = "hatchling.build"
 packages = ["ragnerock"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests/unit"]
 pythonpath = ["."]
+addopts = "--import-mode=importlib --ignore=tests/integration"

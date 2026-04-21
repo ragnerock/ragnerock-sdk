@@ -3,7 +3,7 @@
 # Usage: ./scripts/ci/run-unit-tests.sh
 
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-source $HERE//helpers/logger.sh
+source $HERE/helpers/logger.sh
 
 set -eo pipefail
 

@@ -15,43 +15,35 @@ class JobStatus(IntEnum):
     """Job lifecycle status. Numeric values match the API."""
 
     NOT_STARTED = 1
+    """The job has been created but execution has not begun."""
+
     IN_PROGRESS = 2
+    """The job is currently executing."""
+
     SUCCEEDED = 3
+    """The job finished successfully (terminal)."""
+
     FAILED = 4
+    """The job finished with an error (terminal)."""
 
 
 class JobType(IntEnum):
     """Job type. Mirrors the server-side enum values."""
 
     AUTOMATIC = auto()
+    """Job started automatically by the server (e.g. on upload)."""
+
     MANUAL = auto()
+    """Job started explicitly via :meth:`~ragnerock.session.Session.run`."""
 
 
 class Job(_Resource):
     """A single workflow execution against a single document.
 
-    Created by ``session.run(workflow, documents=[...])``. Not created directly
-    by users.
-
-    Attributes:
-        id (UUID | None): Job UUID.
-        document_id (UUID | None): Document the job is processing.
-        status (JobStatus | None): Current status.
-        status_message (str | None): Human-readable status detail.
-        start_time (datetime | None): When the job began executing.
-        end_time (datetime | None): When the job finished (or ``None`` if
-            still running).
-        execution_trace (list[dict[str, Any]] | None): Per-node execution
-            trace, when captured.
-        job_type (JobType | None): Automatic vs manual job type.
-        should_parse (bool | None): Whether the server should parse the
-            document as part of the job.
-        capture_execution_log (bool | None): Whether the server records a
-            per-node execution trace.
-        n_tokens (int | None): Token count processed by the job.
-        n_pages (int | None): Page count processed by the job.
-        n_mb (float | None): Document size in megabytes processed.
-        phase (str | None): Current execution phase, when reported.
+    Jobs are created by :meth:`~ragnerock.session.Session.run` (for example,
+    ``session.run(workflow, documents=[...])``) rather than constructed
+    directly. Use :meth:`refresh` or :meth:`wait` to observe progress and
+    :meth:`cancel` / :meth:`retry` to control execution.
     """
 
     id: UUID | None = None
@@ -81,9 +73,7 @@ class Job(_Resource):
             raise RuntimeError("Job is not bound to a session; cannot refresh.")
         self._session.refresh(self)
 
-    def wait(
-        self, *, timeout: float | None = None, poll_interval: float = 2.0
-    ) -> None:
+    def wait(self, *, timeout: float | None = None, poll_interval: float = 2.0) -> None:
         """Poll the job until it reaches a terminal status.
 
         Terminal statuses are :attr:`JobStatus.SUCCEEDED` and

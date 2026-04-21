@@ -11,14 +11,9 @@ from ragnerock.resources.base import _Resource
 class Page(_Resource):
     """A single page within a document.
 
-    Pages are read-only: the API does not expose create / update / delete.
-
-    Attributes:
-        id: Page UUID.
-        document_id: Owning document.
-        page_number: 1-based page number within the document.
-        content: Extracted text content.
-        metadata: Arbitrary key-value metadata.
+    Pages are read-only: the API does not expose create, update, or delete
+    operations for them. Page numbering is 1-based within the owning
+    :class:`~ragnerock.resources.document.Document`.
     """
 
     id: UUID | None = None

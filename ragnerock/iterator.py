@@ -36,9 +36,20 @@ class PaginatedIterator(Generic[T]):
 
     Iterate to yield items one at a time, or use the helpers:
 
-    - :meth:`all` — eagerly fetch everything and return a list
-    - :meth:`first` — fetch and return only the first item (or ``None``)
-    - :meth:`limit` — return a new iterator capped at ``n`` items
+    - :meth:`all` -- eagerly fetch everything and return a list
+    - :meth:`first` -- fetch and return only the first item (or ``None``)
+    - :meth:`limit` -- return a new iterator capped at ``n`` items
+
+    Iteration pulls pages lazily from the underlying ``fetch_page`` callable
+    and yields items one at a time in server order.
+
+    Example::
+
+        for item in session.documents.list():
+            print(item)
+
+        first = session.documents.list().first()
+        top10 = session.documents.list().limit(10).all()
     """
 
     def __init__(
@@ -101,9 +112,25 @@ class PaginatedIterator(Generic[T]):
         return page.items[0]
 
     def __iter__(self) -> Iterator[T]:
+        """Return ``self`` so the iterator can be used in ``for`` loops.
+
+        Returns:
+            Iterator[T]: This iterator instance.
+        """
         return self
 
     def __next__(self) -> T:
+        """Yield the next item, fetching another page from the server if the
+        local buffer is empty.
+
+        Returns:
+            T: The next item in server order.
+
+        Raises:
+            StopIteration: When the configured ``limit`` is reached, the
+                server-reported total is exhausted, or a fetched page comes
+                back empty.
+        """
         if self._limit is not None and self._yielded >= self._limit:
             raise StopIteration
 
