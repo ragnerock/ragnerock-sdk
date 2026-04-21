@@ -5,17 +5,17 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
-import shutil
 from pathlib import Path
 
 from ragnerock import Document, ValidationError
 
 here = Path(__file__).resolve()
 
+
 class TestCreate:
     def test_upload_populates_server_fields(self, session, unique_name):
         """After commit, the local object carries server-assigned id/storage_path/timestamps."""
-        file_path = str(here.parent.parent / "fixtures" / "2025_eng.pdf") 
+        file_path = str(here.parent.parent / "fixtures" / "2025_eng.pdf")
         doc = Document(file_path=file_path, name=unique_name)
         session.add(doc)
         session.commit()
@@ -36,7 +36,7 @@ class TestCreate:
 
 class TestGetByID:
     def test_get_by_id_round_trips(self, session, unique_name):
-        file_path = str(here.parent.parent / "fixtures" / "2025_eng.pdf") 
+        file_path = str(here.parent.parent / "fixtures" / "2025_eng.pdf")
         doc = Document(file_path=file_path, name=unique_name)
         session.add(doc)
         session.commit()
@@ -55,7 +55,7 @@ class TestGetByID:
 
 class TestGetByName:
     def test_get_by_name_round_trips(self, session, unique_name):
-        file_path = str(here.parent.parent / "fixtures" / "2025_eng.pdf") 
+        file_path = str(here.parent.parent / "fixtures" / "2025_eng.pdf")
         doc = Document(file_path=file_path, name=unique_name)
         session.add(doc)
         session.commit()
@@ -76,7 +76,7 @@ class TestGetByName:
 class TestList:
     def test_list_includes_new_document(self, session, unique_name):
         """A freshly-created document shows up in the list within the same session."""
-        file_path = str(here.parent.parent / "fixtures" / "2025_eng.pdf") 
+        file_path = str(here.parent.parent / "fixtures" / "2025_eng.pdf")
         doc = Document(file_path=file_path, name=unique_name)
         session.add(doc)
         session.commit()
@@ -90,7 +90,7 @@ class TestList:
 
 class TestUpdate:
     def test_rename(self, session, unique_name):
-        file_path = str(here.parent.parent / "fixtures" / "2025_eng.pdf") 
+        file_path = str(here.parent.parent / "fixtures" / "2025_eng.pdf")
         doc = Document(file_path=file_path, name=unique_name)
         session.add(doc)
         session.commit()
@@ -109,7 +109,7 @@ class TestUpdate:
 
 class TestDelete:
     def test_delete_then_lookup_returns_none(self, session, unique_name):
-        file_path = str(here.parent.parent / "fixtures" / "2025_eng.pdf") 
+        file_path = str(here.parent.parent / "fixtures" / "2025_eng.pdf")
         doc = Document(file_path=file_path, name=unique_name)
         session.add(doc)
         session.commit()

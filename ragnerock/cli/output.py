@@ -11,6 +11,7 @@ import yaml
 from rich.console import Console
 from rich.table import Table
 
+from ragnerock.cli.manifest import DEFAULT_API_VERSION
 from ragnerock.cli.resources import KindSpec, resource_name
 from ragnerock.resources.base import _Resource
 
@@ -112,6 +113,7 @@ def _to_manifest_doc(item: _Resource, spec: KindSpec) -> dict[str, Any]:
         metadata["id"] = rid
 
     return {
+        "apiVersion": DEFAULT_API_VERSION,
         "kind": spec.kind,
         "metadata": metadata,
         "spec": data,

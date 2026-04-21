@@ -1235,8 +1235,8 @@ class Session:
                 persist=resource.persist,
                 on_error=resource.on_error,
                 max_retries=resource.max_retries,
-                in_nodes=list(resource.in_nodes),
-                out_nodes=list(resource.out_nodes),
+                in_node_ids=list(resource.in_nodes),
+                out_node_ids=list(resource.out_nodes),
             )
             _copy_fields(resource, response)
             return
@@ -1376,7 +1376,7 @@ class Session:
                     return self.list(  # type: ignore[return-value]
                         Annotation,
                         document_id=doc.id,
-                        operator_id=parent.id,
+                        operator_name=parent.name,
                     )
                 hydrated = kwargs.get("hydrated", False)
                 return self.list(Annotation, operator_id=parent.id, hydrated=hydrated)  # type: ignore[return-value]

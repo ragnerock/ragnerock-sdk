@@ -15,13 +15,13 @@ The CLI ships in the main package; no extras are required.
 
 The CLI reads credentials from environment variables. Two equivalent forms:
 
-**Form 1** — full connection string:
+**Full connection string**
 
 ```bash
 export RAGNEROCK_CONNECTION_STRING="ragnerock://you@example.com:pass@api.ragnerock.com/my_project"
 ```
 
-**Form 2** — split variables (useful in CI):
+**Split variables**
 
 | Variable | Purpose |
 |---|---|
@@ -30,7 +30,7 @@ export RAGNEROCK_CONNECTION_STRING="ragnerock://you@example.com:pass@api.ragnero
 | `RAGNEROCK_PASSWORD` | Account password. |
 | `RAGNEROCK_PROJECT` | Project name to scope every command to. |
 
-`RAGNEROCK_CONNECTION_STRING`, if set, always wins. If neither form is complete, commands exit with a message listing the missing variables.
+`RAGNEROCK_CONNECTION_STRING` will always overwrite the split variables if set.
 
 ```bash
 # CI example
@@ -42,7 +42,9 @@ export RAGNEROCK_PROJECT=ci-sandbox
 
 ## Commands
 
-### `get` — list resources or fetch one by name
+### `get`
+
+List resources or fetch one by name
 
 ```
 ragnerock get <kind> [NAME] [-o table|json|yaml|name] [--filter k=v ...]
@@ -61,37 +63,41 @@ Pass `NAME` to fetch exactly one:
 ragnerock get op sentiment -o yaml
 ```
 
-Some kinds require a `--filter`:
+Additionally, use `--filter` to filter the resulting resources by resource values:
 
 ```bash
 ragnerock get chunk --filter document=00000000-0000-0000-0000-000000000101
 ragnerock get annotation --filter operator=sentiment-classifier
 ```
 
-### `describe` — full detail for one resource
+### `describe`
+Get full details for one resource
 
 ```
 ragnerock describe <kind> <NAME> [-o table|json|yaml|name]
 ```
 
-Same flags as `get`; default is `yaml` instead of `table`, which round-trips cleanly into `apply -f -`:
+By default describe outputs are formatted as YAML, however JSON is also available
 
 ```bash
 ragnerock describe op sentiment                     # yaml, default
 ragnerock describe op sentiment -o json             # explicit override
 ```
 
-### `apply` — create or update resources from a manifest
+### `apply`
+
+Create or update resources from a manifest
 
 ```
 ragnerock apply -f FILE [-f FILE ...]
 ```
 
-`-f` is repeatable. Each source can be a path or `-` to read a multi-doc YAML stream from STDIN — so heredocs and piped output just work:
+`-f` is repeatable in the event you want to apply multiple sources. Each source may be a file path, a directory, or `-` to read from STDIN. Directory sources are walked recursively and every `*.yaml` / `*.yml` file beneath the directory is loaded in sorted order; hidden entries (dotfiles, `.git/`, …) and non-YAML files are silently skipped. Files, directories, and `-` may be freely mixed across repeated `-f` flags.
 
 ```bash
 # heredoc
 ragnerock apply -f - <<'EOF'
+apiVersion: v1
 kind: Operator
 metadata: { name: sentiment }
 spec:
@@ -105,32 +111,41 @@ ragnerock get op sentiment -o yaml | ragnerock apply -f -
 
 # multi-file
 ragnerock apply -f operators.yaml -f workflows.yaml
+
+# directory tree
+ragnerock apply -f manifests/
 ```
 
 `apply` is idempotent: new resources (no existing match on `metadata.name`) are created, existing ones are updated in place. Across multi-doc manifests, documents are committed in dependency order: `DocumentGroup → Operator → Document → Workflow → Annotation`. See [Manifests](manifests.md) for the full schema.
 
-### `delete` — remove a resource
+### `delete`
+
+Remove a resource
 
 ```
 ragnerock delete <kind> <NAME>
 ragnerock delete -f FILE [-f FILE ...]
 ```
 
-Either pass `<kind> <NAME>`, or pass one or more manifests (including `-` for STDIN) and every resource they declare is deleted by name:
+Either pass `<kind> <NAME>`, or pass one or more manifests (including `-` for STDIN) and every resource they declare is subsequently deleted by name:
 
 ```bash
 ragnerock delete op sentiment
 ragnerock delete -f operators.yaml
 ```
 
-### `run` — execute a workflow
+### `run`
+
+Execute a workflow
 
 ```
 ragnerock run <workflow-name> --documents NAME[,NAME...] \
   [--wait] [--poll-interval 2] [--timeout 300]
 ```
 
-Looks up the workflow and documents by name, calls `session.run(...)`, and prints the resulting job id. Pass `--wait` to block until the job reaches a terminal state:
+Looks up the workflow and documents by name, calls `session.run(...)`, and prints the resulting job id
+
+You can optionally pass `--wait` to block until the job reaches a terminal state:
 
 ```bash
 ragnerock run ingest --documents q3-report.pdf --wait --timeout 600
@@ -138,11 +153,15 @@ ragnerock run ingest --documents q3-report.pdf --wait --timeout 600
 
 Exit codes for `--wait`:
 
-* `0` — job succeeded.
-* `1` — workflow or document not found.
-* `2` — job failed or timed out.
+| code | Meaning                        |
+| ---- | ------------------------------ |
+| `0`  | Job succeeded                  |
+| `1`  | Workflow or document not found |
+| `2`  | Job failed or timed out        |
 
-### `query` — run annotation SQL
+### `query`
+
+Run annotation SQL
 
 ```
 ragnerock query "SELECT ..." [-o table|json] [--limit N]
@@ -153,39 +172,30 @@ ragnerock query "SELECT document_id, label FROM sentiment LIMIT 20"
 ragnerock query "SELECT COUNT(*) FROM sentiment WHERE label = 'negative'" -o json
 ```
 
-Tables use the names of your operators as defined on the server.
+Tables uses slugified operator names as their names. For example, the operator `Document Properties` is normalized to `document_properties` in queries.
 
 ### `version`
+
+Display the current CLI version.
 
 ```bash
 ragnerock version
 ```
 
-Prints the installed `ragnerock` package version.
-
 ## Resource kinds
 
 | CLI name | Aliases | Notes |
-|---|---|---|
-| `Document` | `doc`, `docs`, `document`, `documents` | |
-| `DocumentGroup` | `grp`, `group`, `groups`, `documentgroup`, `documentgroups` | |
-| `Operator` | `op`, `ops`, `operator`, `operators` | |
-| `Workflow` | `wf`, `wfs`, `workflow`, `workflows` | |
-| `Annotation` | `anno`, `annos`, `annotation`, `annotations` | Requires `--filter document=...`, `--filter chunk=...`, or `--filter operator=...` when listing. |
-| `Chunk` | `chunk`, `chunks` | Read-only. Requires `--filter document=...` when listing; no name lookup. |
-| `Page` | `page`, `pages` | Read-only. Requires `--filter document=...`; no name lookup. |
-| `Job` | `job`, `jobs` | Read-only. Created via `ragnerock run`. |
+| --------------- | ------------------------------------------------------------| --- |
+| `Document`      | `doc`, `docs`, `document`, `documents`                      |     |
+| `DocumentGroup` | `grp`, `group`, `groups`, `documentgroup`, `documentgroups` |     |
+| `Operator`      | `op`, `ops`, `operator`, `operators`                        |     |
+| `Workflow`      | `wf`, `wfs`, `workflow`, `workflows`                        |     |
+| `Annotation`    | `anno`, `annos`, `annotation`, `annotations`                | Requires `--filter document=...`, `--filter chunk=...`, or `--filter operator=...` when listing. |
+| `Chunk`         | `chunk`, `chunks`                                           | Read-only. Requires `--filter document=...` when listing; no name lookup. |
+| `Page`          | `page`, `pages`                                             | Read-only. Requires `--filter document=...`; no name lookup. |
+| `Job`           | `job`, `jobs`                                               | Read-only. Created via `ragnerock run`. |
 
 Matching is case-insensitive.
-
-## Output formats
-
-| Format | When to use |
-|---|---|
-| `table` | Default for `get`. Human-friendly, colorized when stdout is a TTY. |
-| `json` | Machine-readable. Arrays of `{...}` objects. |
-| `yaml` | Default for `describe`. Inverse of the manifest format — pipes straight into `apply -f -`. |
-| `name` | One resource name per line, for piping to `xargs` / `while read`. |
 
 ## Exit codes
 

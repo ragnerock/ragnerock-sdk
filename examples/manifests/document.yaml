@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Document
+metadata:
+  name: q3-report.pdf
+spec:
+  file_path: ./reports/q3.pdf
+  group: quarterly-reports
+  file_type: PDF
+  metadata:
+    quarter: Q3
+    year: 2024
+---
+apiVersion: v1
+kind: Document
+metadata:
+  name: anthropic-home
+spec:
+  source_url: https://www.anthropic.com/
+  file_type: PLAINTEXT

@@ -27,7 +27,11 @@ def delete_cmd(
         typer.Option(
             "--file",
             "-f",
-            help="Delete resources listed in manifest(s). Use '-' for STDIN.",
+            help=(
+                "Delete resources listed in manifest(s). Accepts file paths, "
+                "directories (recursively loads '*.yaml' / '*.yml'), or '-' "
+                "for STDIN."
+            ),
         ),
     ] = None,
 ) -> None:

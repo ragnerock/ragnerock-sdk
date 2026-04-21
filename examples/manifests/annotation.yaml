@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Annotation
+metadata:
+  name: q3-sentiment-stub
+spec:
+  operator: sentiment-classifier
+  document_id: 00000000-0000-0000-0000-000000000101
+  data:
+    sentiment: positive
+  confidence_score: 0.95

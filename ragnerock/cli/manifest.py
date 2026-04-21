@@ -3,6 +3,7 @@
 A manifest is a multi-doc YAML file (or stream) where each document has the
 shape::
 
+    apiVersion: v1
     kind: <ResourceKind>
     metadata:
       name: <string>
@@ -14,6 +15,7 @@ shape::
 from __future__ import annotations
 
 import io
+import os
 import sys
 from dataclasses import dataclass
 from typing import Any
@@ -21,6 +23,12 @@ from typing import Any
 import yaml
 
 from ragnerock.cli.resources import KindSpec, UnknownKindError, resolve_kind
+
+
+_YAML_EXTENSIONS: frozenset[str] = frozenset({".yaml", ".yml"})
+
+DEFAULT_API_VERSION: str = "v1"
+SUPPORTED_API_VERSIONS: frozenset[str] = frozenset({"v1"})
 
 
 class ManifestError(Exception):
@@ -32,6 +40,9 @@ class ManifestDoc:
     """A single parsed manifest document.
 
     Attributes:
+        api_version (str): Value of ``apiVersion``; defaults to ``v1`` when
+            absent. Only versions in :data:`SUPPORTED_API_VERSIONS` are
+            accepted.
         spec_kind (KindSpec): The resolved kind metadata.
         name (str): Value of ``metadata.name``. Required on every manifest.
         metadata (dict[str, Any]): Full ``metadata`` block, minus ``name``.
@@ -40,6 +51,7 @@ class ManifestDoc:
         index (int): 0-based index within the source.
     """
 
+    api_version: str
     spec_kind: KindSpec
     name: str
     metadata: dict[str, Any]
@@ -57,12 +69,49 @@ _APPLY_ORDER: tuple[str, ...] = (
 )
 
 
+def _expand_sources(sources: list[str]) -> list[str]:
+    """Expand directory sources to their contained YAML files.
+
+    ``-`` and non-directory paths pass through unchanged (non-existent paths
+    are left for :func:`read_manifests` to surface with its existing error
+    wording). Directory sources are walked recursively, sorted for
+    deterministic ordering, with hidden entries and non-YAML files skipped.
+    """
+    expanded: list[str] = []
+    for source in sources:
+        if source == "-" or not os.path.isdir(source):
+            expanded.append(source)
+            continue
+
+        def _raise(err: OSError, directory: str = source) -> None:
+            raise ManifestError(f"Cannot read directory {directory!r}: {err}")
+
+        found: list[str] = []
+        for dirpath, dirnames, filenames in os.walk(
+            source, followlinks=False, onerror=_raise
+        ):
+            dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
+            for name in sorted(filenames):
+                if name.startswith("."):
+                    continue
+                if os.path.splitext(name)[1].lower() not in _YAML_EXTENSIONS:
+                    continue
+                found.append(os.path.join(dirpath, name))
+
+        if not found:
+            raise ManifestError(f"No YAML manifests found under directory {source!r}.")
+        expanded.extend(found)
+    return expanded
+
+
 def read_manifests(sources: list[str]) -> list[ManifestDoc]:
-    """Load manifests from a mix of file paths and ``-`` (STDIN).
+    """Load manifests from a mix of file paths, directories, and ``-`` (STDIN).
 
     Args:
         sources (list[str]): One or more sources. ``-`` reads from
-            :data:`sys.stdin`; anything else is treated as a file path.
+            :data:`sys.stdin`; a directory is expanded recursively to every
+            ``*.yaml`` / ``*.yml`` file beneath it (sorted, hidden entries
+            skipped); anything else is treated as a file path.
 
     Returns:
         list[ManifestDoc]: Parsed manifest documents, in the order they were
@@ -74,8 +123,10 @@ def read_manifests(sources: list[str]) -> list[ManifestDoc]:
     if not sources:
         raise ManifestError("At least one -f/--file source is required.")
 
+    expanded = _expand_sources(sources)
+
     docs: list[ManifestDoc] = []
-    for source in sources:
+    for source in expanded:
         if source == "-":
             text = sys.stdin.read()
             label = "<stdin>"
@@ -114,6 +165,15 @@ def _validate_doc(raw: Any, source: str, index: int) -> ManifestDoc:
     if not isinstance(raw, dict):
         raise ManifestError(f"{where}: manifest document must be a mapping.")
 
+    api_version = raw.get("apiVersion", DEFAULT_API_VERSION)
+    if not isinstance(api_version, str):
+        raise ManifestError(f"{where}: 'apiVersion' must be a string.")
+    if api_version not in SUPPORTED_API_VERSIONS:
+        raise ManifestError(
+            f"{where}: unsupported apiVersion {api_version!r} "
+            f"(supported: {sorted(SUPPORTED_API_VERSIONS)})."
+        )
+
     kind_str = raw.get("kind")
     if not isinstance(kind_str, str) or not kind_str:
         raise ManifestError(f"{where}: missing or invalid 'kind'.")
@@ -142,6 +202,7 @@ def _validate_doc(raw: Any, source: str, index: int) -> ManifestDoc:
     metadata_rest = {k: v for k, v in metadata.items() if k != "name"}
 
     return ManifestDoc(
+        api_version=api_version,
         spec_kind=spec_kind,
         name=name,
         metadata=metadata_rest,

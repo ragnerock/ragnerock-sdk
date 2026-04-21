@@ -33,8 +33,11 @@ def apply_cmd(
             "--file",
             "-f",
             help=(
-                "Manifest source. Repeatable. Use '-' to read a YAML stream "
-                "from STDIN (supports heredocs and pipes)."
+                "Manifest source. Repeatable. Accepts a file path, a "
+                "directory (recursively loads every '*.yaml' / '*.yml' file "
+                "beneath it in sorted order; hidden and non-YAML entries are "
+                "skipped), or '-' to read a YAML stream from STDIN "
+                "(supports heredocs and pipes)."
             ),
         ),
     ] = None,

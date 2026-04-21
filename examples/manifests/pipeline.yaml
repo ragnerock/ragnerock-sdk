@@ -1,0 +1,79 @@
+apiVersion: v1
+kind: DocumentGroup
+metadata:
+  name: quarterly-reports
+spec: {}
+---
+apiVersion: v1
+kind: Operator
+metadata:
+  name: entity-extractor
+spec:
+  description: Extract named entities from a paragraph.
+  jsonschema:
+    type: object
+    properties:
+      entities:
+        type: array
+        items:
+          type: object
+          properties:
+            text: { type: string }
+            type: { type: string }
+          required: [text, type]
+    required: [entities]
+  generation_prompt: |
+    Extract all named entities (people, organizations, locations) from the
+    paragraph below and return them as JSON matching the schema.
+  chunk_type: PARAGRAPH
+  batch_size: 16
+---
+apiVersion: v1
+kind: Operator
+metadata:
+  name: sentiment-classifier
+spec:
+  description: Classify sentiment of document paragraphs.
+  jsonschema:
+    type: object
+    properties:
+      sentiment:
+        type: string
+        enum: [positive, negative, neutral]
+    required: [sentiment]
+  generation_prompt: "Classify the sentiment of this paragraph."
+  chunk_type: PARAGRAPH
+---
+apiVersion: v1
+kind: Document
+metadata:
+  name: q3-report.pdf
+spec:
+  file_path: ./reports/q3.pdf
+  group: quarterly-reports
+  file_type: PDF
+  metadata:
+    quarter: Q3
+    year: 2024
+---
+apiVersion: v1
+kind: Workflow
+metadata:
+  name: sentiment-pipeline
+spec:
+  description: Extract entities, then classify sentiment where entities are present.
+  is_active: true
+  auto_run_on_upload: false
+  nodes:
+    - name: extract
+      operator: entity-extractor
+      on_error: FAIL_JOB
+      max_retries: 2
+    - name: classify
+      operator: sentiment-classifier
+      condition:
+        extract:
+          entities:
+            $gt: 0
+  edges:
+    - [extract, classify]

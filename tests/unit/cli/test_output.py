@@ -62,6 +62,25 @@ def test_yaml_multiple_items_emits_multi_doc() -> None:
     assert names == ["sentiment", "other"]
 
 
+def test_yaml_output_emits_api_version_first() -> None:
+    spec = resolve_kind("operator")
+
+    single_stream = io.StringIO()
+    render([_sample_operator()], spec, OutputFormat.YAML, stream=single_stream)
+    single_doc = yaml.safe_load(single_stream.getvalue())
+    assert single_doc["apiVersion"] == "v1"
+    assert next(iter(single_doc)) == "apiVersion"
+
+    multi_stream = io.StringIO()
+    other = _sample_operator()
+    other.name = "other"
+    render([_sample_operator(), other], spec, OutputFormat.YAML, stream=multi_stream)
+    multi_docs = list(yaml.safe_load_all(multi_stream.getvalue()))
+    for doc in multi_docs:
+        assert doc["apiVersion"] == "v1"
+        assert next(iter(doc)) == "apiVersion"
+
+
 def test_name_format_prints_one_per_line() -> None:
     spec = resolve_kind("operator")
     a = _sample_operator()
