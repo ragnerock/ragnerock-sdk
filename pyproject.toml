@@ -23,7 +23,7 @@ dev = [
     "pytest-httpx>=0.35",
     "pandas>=2.0",
     "sphinx>=9.1.0",
-    "sphinx-rtd-theme>=3.1.0",
+    "furo>=2024.8.6",
     "myst-parser>=5.0.0",
     "ruff>=0.15.11",
     "pyright>=1.1.408",
@@ -37,6 +37,14 @@ build-backend = "hatchling.build"
 packages = ["ragnerock"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests/unit"]
+testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "--import-mode=importlib --ignore=tests/integration"
+
+[tool.pyright]
+include = ["ragnerock", "tests"]
+
+[[tool.pyright.executionEnvironments]]
+root = "tests"
+reportArgumentType = "none"
+reportUnusedExpression = "none"

@@ -244,9 +244,10 @@ class Session:
                 if id is not None:
                     response = client.documents.get(_as_uuid(id))
                 else:
+                    assert name is not None
                     response = client.documents.get_by_name(
                         name,
-                        project_id=self._engine.project_id,  # type: ignore[arg-type]
+                        project_id=self._engine.project_id,
                     )
             except NotFoundError:
                 return None
@@ -423,76 +424,76 @@ class Session:
 
         if resource_type is Document:
 
-            def fetch(skip: int, limit: int) -> PageResult[Document]:
+            def fetch_documents(skip: int, limit: int) -> PageResult[Document]:
                 response = client.documents.list(
                     project_ids=str(project_id), skip=skip, limit=limit
                 )
                 items = [self._bind(_build(Document, r)) for r in response.documents]
                 return PageResult(items, response.total)
 
-            return PaginatedIterator(fetch)  # type: ignore[return-value]
+            return PaginatedIterator(fetch_documents)  # type: ignore[return-value]
 
         if resource_type is DocumentGroup:
 
-            def fetch(skip: int, limit: int) -> PageResult[DocumentGroup]:
+            def fetch_groups(skip: int, limit: int) -> PageResult[DocumentGroup]:
                 response = client.groups.list(project_id, skip=skip, limit=limit)
                 items = [self._bind(_build(DocumentGroup, r)) for r in response.groups]
                 return PageResult(items, response.total)
 
-            return PaginatedIterator(fetch)  # type: ignore[return-value]
+            return PaginatedIterator(fetch_groups)  # type: ignore[return-value]
 
         if resource_type is Chunk:
             document_id = filters.get("document_id")
             if document_id is None:
                 raise ValidationError("Chunk list requires document_id=")
 
-            def fetch(skip: int, limit: int) -> PageResult[Chunk]:
+            def fetch_chunks(skip: int, limit: int) -> PageResult[Chunk]:
                 response = client.chunks.list(
                     document_ids=str(_as_uuid(document_id)), skip=skip, limit=limit
                 )
                 items = [self._bind(_build(Chunk, r)) for r in response.chunks]
                 return PageResult(items, response.total)
 
-            return PaginatedIterator(fetch)  # type: ignore[return-value]
+            return PaginatedIterator(fetch_chunks)  # type: ignore[return-value]
 
         if resource_type is Page:
             document_id = filters.get("document_id")
             if document_id is None:
                 raise ValidationError("Page list requires document_id=")
 
-            def fetch(skip: int, limit: int) -> PageResult[Page]:
+            def fetch_pages(skip: int, limit: int) -> PageResult[Page]:
                 response = client.pages.list(
                     _as_uuid(document_id), skip=skip, limit=limit
                 )
                 items = [self._bind(_build(Page, r)) for r in response.pages]
                 return PageResult(items, response.total)
 
-            return PaginatedIterator(fetch)  # type: ignore[return-value]
+            return PaginatedIterator(fetch_pages)  # type: ignore[return-value]
 
         if resource_type is Annotation:
             return self._list_annotations(**filters)  # type: ignore[return-value]
 
         if resource_type is Operator:
 
-            def fetch(skip: int, limit: int) -> PageResult[Operator]:
+            def fetch_operators(skip: int, limit: int) -> PageResult[Operator]:
                 response = client.operators.list(
                     project_ids=str(project_id), skip=skip, limit=limit
                 )
                 items = [self._bind(_build(Operator, r)) for r in response.operators]
                 return PageResult(items, response.total)
 
-            return PaginatedIterator(fetch)  # type: ignore[return-value]
+            return PaginatedIterator(fetch_operators)  # type: ignore[return-value]
 
         if resource_type is Workflow:
 
-            def fetch(skip: int, limit: int) -> PageResult[Workflow]:
+            def fetch_workflows(skip: int, limit: int) -> PageResult[Workflow]:
                 response = client.workflows.list(
                     project_ids=str(project_id), skip=skip, limit=limit
                 )
                 items = [self._bind(_build(Workflow, r)) for r in response.workflows]
                 return PageResult(items, response.total)
 
-            return PaginatedIterator(fetch)  # type: ignore[return-value]
+            return PaginatedIterator(fetch_workflows)  # type: ignore[return-value]
 
         if resource_type is Job:
             status = filters.get("status")
@@ -503,7 +504,7 @@ class Session:
                 else:
                     status_filter = str(int(status))
 
-            def fetch(skip: int, limit: int) -> PageResult[Job]:
+            def fetch_jobs(skip: int, limit: int) -> PageResult[Job]:
                 response = client.jobs.list(
                     project_id=project_id,
                     status_filter=status_filter,
@@ -513,7 +514,7 @@ class Session:
                 items = [self._bind(_build(Job, r)) for r in response.jobs]
                 return PageResult(items, response.total)
 
-            return PaginatedIterator(fetch)  # type: ignore[return-value]
+            return PaginatedIterator(fetch_jobs)  # type: ignore[return-value]
 
         raise TypeError(f"list() does not support resource type {resource_type!r}")
 
@@ -1315,26 +1316,30 @@ class Session:
         """
         if isinstance(parent, Document):
             if resource_type is Chunk:
-                return self.list(Chunk, document_id=parent.id)
+                return self.list(Chunk, document_id=parent.id)  # type: ignore[return-value]
             if resource_type is Page:
-                return self.list(Page, document_id=parent.id)
+                return self.list(Page, document_id=parent.id)  # type: ignore[return-value]
             if resource_type is Annotation:
                 operator_name = kwargs.get("operator_name")
                 if operator_name is not None:
-                    return self.list(
+                    return self.list(  # type: ignore[return-value]
                         Annotation,
                         document_id=parent.id,
                         operator_name=operator_name,
                     )
-                return self.list(Annotation, document_id=parent.id)
+                return self.list(Annotation, document_id=parent.id)  # type: ignore[return-value]
 
         if isinstance(parent, Chunk):
             if resource_type is Annotation:
-                return self.list(Annotation, chunk_id=parent.id)
+                return self.list(Annotation, chunk_id=parent.id)  # type: ignore[return-value]
 
         if isinstance(parent, DocumentGroup):
             if resource_type is Document:
                 group_id = parent.id
+                if group_id is None:
+                    raise ValidationError(
+                        "DocumentGroup must have an id to list its documents"
+                    )
                 client = self._engine.client
 
                 def fetch(skip: int, limit: int) -> PageResult[Document]:
@@ -1352,13 +1357,13 @@ class Session:
             if resource_type is Annotation:
                 doc = kwargs.get("document")
                 if doc is not None:
-                    return self.list(
+                    return self.list(  # type: ignore[return-value]
                         Annotation,
                         document_id=doc.id,
                         operator_id=parent.id,
                     )
                 hydrated = kwargs.get("hydrated", False)
-                return self.list(Annotation, operator_id=parent.id, hydrated=hydrated)
+                return self.list(Annotation, operator_id=parent.id, hydrated=hydrated)  # type: ignore[return-value]
 
         raise TypeError(
             f"{type(parent).__name__} does not support list({resource_type.__name__})"
