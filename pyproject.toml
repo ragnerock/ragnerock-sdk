@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Python SDK for the Ragnerock API."
 readme = "README.md"
 requires-python = ">=3.13"
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 authors = [{ name = "Ragnerock" }]
 dependencies = [
     "httpx>=0.27",
