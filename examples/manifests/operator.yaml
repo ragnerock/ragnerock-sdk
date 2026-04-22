@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Operator
+metadata:
+  name: sentiment-classifier
+spec:
+  description: Classify sentiment of document paragraphs.
+  jsonschema:
+    type: object
+    properties:
+      sentiment:
+        type: string
+        enum: [positive, negative, neutral]
+    required: [sentiment]
+  generation_prompt: |
+    Read the paragraph below and classify its overall sentiment as one of
+    "positive", "negative", or "neutral". Respond with the JSON object
+    described by the schema.
+  chunk_type: PARAGRAPH
+  batch_size: 16
+  multi_annotation: false

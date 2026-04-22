@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Workflow
+metadata:
+  name: review-pipeline
+spec:
+  description: Extract entities, then classify sentiment on paragraphs with entities.
+  is_active: true
+  auto_run_on_upload: false
+  nodes:
+    - operator: entity-extractor
+      on_error: FAIL_JOB
+      max_retries: 2
+    - operator: sentiment-classifier
+      condition:
+        extract:
+          entities:
+            $gt: 0
+      persist: true
+  edges:
+    - [extract, classify]

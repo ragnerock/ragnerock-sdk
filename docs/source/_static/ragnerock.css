@@ -1,0 +1,422 @@
+/* Ragnerock Sphinx theme — matches ragnerock-site branding.
+   Overrides Furo's CSS variables with the palette from
+   ragnerock-site/src/styles/themes.css. */
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/inter-latin-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("fonts/inter-latin-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("fonts/inter-latin-600.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("fonts/inter-latin-700.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url("fonts/jetbrains-mono-latin-var.woff2") format("woff2");
+}
+
+:root {
+  /* Brand palette (from ragnerock-site themes.css) */
+  --rg-primary: #3b7ef0;
+  --rg-primary-hover: #2563eb;
+  --rg-primary-lighter: #5c9ef3;
+  --rg-primary-glow: rgba(59, 126, 240, 0.3);
+  --rg-accent: #4ec9b0;
+  --rg-success: #16a34a;
+  --rg-warning: #dcdcaa;
+  --rg-error: #f14c4c;
+  --rg-info: #9cdcfe;
+
+  --rg-bg-primary: #161719;
+  --rg-bg-secondary: #292b2f;
+  --rg-bg-tertiary: #33363b;
+  --rg-bg-elevated: rgba(22, 23, 25, 0.95);
+
+  --rg-border-primary: #282e38;
+  --rg-border-secondary: #3a4250;
+
+  --rg-text-primary: #ffffff;
+  --rg-text-secondary: #d4d4d4;
+  --rg-text-muted: #828a94;
+
+  --rg-syntax-keyword: #5c9ef3;
+  --rg-syntax-string: #ce9178;
+  --rg-syntax-number: #b5cea8;
+  --rg-syntax-comment: #6a9955;
+  --rg-syntax-variable: #9cdcfe;
+
+  --rg-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display",
+    "Helvetica Neue", sans-serif;
+  --rg-font-mono: "JetBrains Mono", "SF Mono", Monaco, Consolas,
+    "Liberation Mono", monospace;
+
+  /* Furo variable overrides — shared defaults */
+  --font-stack: var(--rg-font-sans);
+  --font-stack--monospace: var(--rg-font-mono);
+  --font-stack--headings: var(--rg-font-sans);
+}
+
+/* Dark mode (default): map Furo tokens to Ragnerock palette. */
+body,
+body[data-theme="dark"],
+body[data-theme="auto"] {
+  /* Tighten sidebar indent — Furo defaults (1rem) leave an awkward gap
+     against the drawer edge. Captions + links use this horizontal value. */
+  --sidebar-item-spacing-horizontal: 1rem;
+
+  --color-problematic: var(--rg-error);
+
+  --color-foreground-primary: var(--rg-text-primary);
+  --color-foreground-secondary: var(--rg-text-secondary);
+  --color-foreground-muted: var(--rg-text-muted);
+  --color-foreground-border: var(--rg-border-secondary);
+
+  --color-background-primary: var(--rg-bg-primary);
+  --color-background-secondary: #1c1e21;
+  --color-background-hover: var(--rg-bg-secondary);
+  --color-background-hover--transparent: rgba(41, 43, 47, 0);
+  --color-background-border: var(--rg-border-primary);
+  --color-background-item: var(--rg-bg-tertiary);
+
+  --color-announcement-background: var(--rg-bg-tertiary);
+  --color-announcement-text: var(--rg-text-primary);
+
+  --color-brand-primary: var(--rg-primary);
+  --color-brand-content: var(--rg-primary-lighter);
+  --color-brand-visited: var(--rg-primary-lighter);
+
+  --color-api-background: var(--rg-bg-secondary);
+  --color-api-background-hover: var(--rg-bg-tertiary);
+  --color-api-overall: var(--rg-text-muted);
+  --color-api-name: var(--rg-primary-lighter);
+  --color-api-pre-name: var(--rg-accent);
+  --color-api-paren: var(--rg-text-secondary);
+  --color-api-keyword: var(--rg-syntax-keyword);
+
+  --color-highlighted-background: rgba(59, 126, 240, 0.25);
+  --color-highlighted-text: var(--rg-text-primary);
+
+  --color-guilabel-background: rgba(78, 201, 176, 0.15);
+  --color-guilabel-border: rgba(78, 201, 176, 0.4);
+  --color-guilabel-text: var(--rg-accent);
+
+  --color-admonition-background: var(--rg-bg-secondary);
+  --color-admonition-title-background--note: rgba(92, 158, 243, 0.15);
+  --color-admonition-title--note: var(--rg-primary-lighter);
+  --color-admonition-title-background--tip: rgba(78, 201, 176, 0.15);
+  --color-admonition-title--tip: var(--rg-accent);
+  --color-admonition-title-background--important: rgba(78, 201, 176, 0.15);
+  --color-admonition-title--important: var(--rg-accent);
+  --color-admonition-title-background--hint: rgba(78, 201, 176, 0.15);
+  --color-admonition-title--hint: var(--rg-accent);
+  --color-admonition-title-background--warning: rgba(220, 220, 170, 0.15);
+  --color-admonition-title--warning: var(--rg-warning);
+  --color-admonition-title-background--caution: rgba(220, 220, 170, 0.15);
+  --color-admonition-title--caution: var(--rg-warning);
+  --color-admonition-title-background--attention: rgba(220, 220, 170, 0.15);
+  --color-admonition-title--attention: var(--rg-warning);
+  --color-admonition-title-background--danger: rgba(241, 76, 76, 0.15);
+  --color-admonition-title--danger: var(--rg-error);
+  --color-admonition-title-background--error: rgba(241, 76, 76, 0.15);
+  --color-admonition-title--error: var(--rg-error);
+  --color-admonition-title-background--seealso: rgba(92, 158, 243, 0.15);
+  --color-admonition-title--seealso: var(--rg-primary-lighter);
+  --color-admonition-title-background--todo: rgba(92, 158, 243, 0.15);
+  --color-admonition-title--todo: var(--rg-primary-lighter);
+
+  --color-inline-code-background: var(--rg-bg-tertiary);
+  --color-code-background: #0f1012;
+  --color-code-foreground: var(--rg-text-secondary);
+
+  --color-card-background: var(--rg-bg-secondary);
+  --color-card-border: var(--rg-border-primary);
+  --color-card-marginals-background: var(--rg-bg-tertiary);
+
+  --color-header-background: rgba(22, 23, 25, 0.85);
+  --color-header-border: var(--rg-border-primary);
+  --color-header-text: var(--rg-text-primary);
+
+  --color-sidebar-background: #121315;
+  --color-sidebar-background-border: var(--rg-border-primary);
+  --color-sidebar-caption-text: var(--rg-text-muted);
+  --color-sidebar-link-text: var(--rg-text-secondary);
+  --color-sidebar-link-text--top-level: var(--rg-text-primary);
+  --color-sidebar-item-background: transparent;
+  --color-sidebar-item-background--current: rgba(59, 126, 240, 0.1);
+  --color-sidebar-item-background--hover: var(--rg-bg-secondary);
+  --color-sidebar-item-expander-background: transparent;
+  --color-sidebar-item-expander-background--hover: var(--rg-bg-tertiary);
+  --color-sidebar-search-background: var(--rg-bg-secondary);
+  --color-sidebar-search-background--focus: var(--rg-bg-tertiary);
+  --color-sidebar-search-border: var(--rg-border-primary);
+  --color-sidebar-search-icon: var(--rg-text-muted);
+
+  --color-toc-background: transparent;
+  --color-toc-title-text: var(--rg-text-muted);
+  --color-toc-item-text: var(--rg-text-secondary);
+  --color-toc-item-text--hover: var(--rg-primary-lighter);
+  --color-toc-item-text--active: var(--rg-primary);
+}
+
+/* Base typography polish */
+body {
+  font-family: var(--rg-font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.sidebar-brand-text {
+  font-family: var(--rg-font-sans);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+code,
+kbd,
+pre,
+samp,
+.highlight,
+.sig {
+  font-family: var(--rg-font-mono);
+}
+
+/* Selection + focus styling to match site */
+::selection {
+  background: var(--rg-primary-glow);
+}
+::-moz-selection {
+  background: var(--rg-primary-glow);
+}
+:focus-visible {
+  outline: 2px solid var(--rg-primary);
+  outline-offset: 2px;
+}
+
+/* Smooth link transitions (mirrors globals.css) */
+a,
+button,
+input,
+textarea {
+  transition: color 0.2s ease, background-color 0.2s ease,
+    border-color 0.2s ease, opacity 0.2s ease, box-shadow 0.2s ease;
+}
+
+a:hover {
+  color: var(--rg-primary-lighter);
+}
+
+/* Flush the sidebar against the left edge of the viewport. Furo's default
+   .sidebar-drawer is a wide flex container with `justify-content: flex-end`,
+   which parks its 15em payload (logo, search, toctree) at the drawer's right
+   edge and leaves the blank space against the viewport's left side. */
+.sidebar-drawer {
+  justify-content: flex-start;
+}
+
+/* Sidebar brand: slightly brighter logo backdrop */
+.sidebar-brand {
+  padding: 1.25rem 1rem 1rem;
+  border-bottom: 1px solid var(--rg-border-primary);
+}
+.sidebar-logo {
+  max-width: 12rem;
+}
+.sidebar-brand-text {
+  color: var(--rg-text-primary);
+  font-size: 1.1rem;
+}
+
+/* Top content banner feels a touch softer */
+article h1 {
+  border-bottom: 1px solid var(--rg-border-primary);
+  padding-bottom: 0.5rem;
+}
+
+/* Code blocks: rounded + subtle ring like the site's prose styling */
+.highlight {
+  border-radius: 0.75rem;
+  border: 1px solid var(--rg-border-primary);
+  background: var(--color-code-background);
+}
+.highlight pre {
+  padding: 1rem 1.25rem;
+  background: transparent;
+}
+code.literal,
+p code,
+li code {
+  background: var(--rg-bg-tertiary);
+  color: var(--rg-primary-lighter);
+  border-radius: 0.25rem;
+  padding: 0.1em 0.35em;
+  font-size: 0.9em;
+  border: 1px solid var(--rg-border-primary);
+}
+
+/* Signature blocks for API docs */
+dl.py > dt,
+dl.c > dt,
+dl.cpp > dt,
+dl.js > dt {
+  background: var(--rg-bg-secondary);
+  border-left: 3px solid var(--rg-primary);
+  border-radius: 0.25rem;
+  padding: 0.4rem 0.75rem;
+}
+
+/* Admonitions: flatter, more modern */
+.admonition,
+div.admonition {
+  border-radius: 0.75rem;
+  border: 1px solid var(--rg-border-primary);
+  background: var(--rg-bg-secondary);
+  box-shadow: none;
+}
+.admonition > .admonition-title,
+div.admonition > .admonition-title {
+  font-weight: 600;
+}
+
+/* Tables — override Furo defaults that left an awkward gap against the
+   cell border (td has 0.25rem padding AND td > p has 0.25rem margin). */
+table.docutils {
+  width: 100%;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  border: 1px solid var(--rg-border-primary);
+  box-shadow: none;
+}
+table.docutils th {
+  background: var(--rg-bg-secondary);
+  color: var(--rg-text-primary);
+  text-align: left;
+}
+table.docutils th,
+table.docutils td {
+  border-color: var(--rg-border-primary);
+  padding: 0.5rem 0.75rem;
+}
+table.docutils td > p,
+table.docutils th > p {
+  margin: 0;
+}
+
+/* In-page toctree (e.g. index.md contents) — Furo leaves these as default
+   bulleted <ul>s with 1.2rem indent. Match the sidebar look instead. */
+.toctree-wrapper.compound > ul,
+.toctree-wrapper.compound ul {
+  list-style: none;
+  padding-left: 0;
+}
+.toctree-wrapper.compound li.toctree-l1 {
+  margin: 0.15rem 0;
+}
+.toctree-wrapper.compound li.toctree-l1 > a {
+  font-weight: 500;
+}
+.toctree-wrapper.compound li ul {
+  padding-left: 1rem;
+  margin-top: 0.1rem;
+}
+
+/* Search input */
+.sidebar-search {
+  border-radius: 0.5rem;
+}
+.sidebar-search:focus {
+  border-color: var(--rg-primary);
+  box-shadow: 0 0 0 2px var(--rg-primary-glow);
+}
+
+/* Syntax highlighting — Pygments tokens tuned to the site palette */
+.highlight .k,
+.highlight .kd,
+.highlight .kn,
+.highlight .kc,
+.highlight .kp,
+.highlight .kr,
+.highlight .kt {
+  color: var(--rg-syntax-keyword);
+}
+.highlight .s,
+.highlight .s1,
+.highlight .s2,
+.highlight .sa,
+.highlight .sb,
+.highlight .sc,
+.highlight .sd,
+.highlight .se,
+.highlight .sh,
+.highlight .si,
+.highlight .sx,
+.highlight .sr,
+.highlight .ss {
+  color: var(--rg-syntax-string);
+}
+.highlight .m,
+.highlight .mf,
+.highlight .mh,
+.highlight .mi,
+.highlight .mo,
+.highlight .il {
+  color: var(--rg-syntax-number);
+}
+.highlight .c,
+.highlight .c1,
+.highlight .cm,
+.highlight .cp,
+.highlight .cs,
+.highlight .ch,
+.highlight .cd {
+  color: var(--rg-syntax-comment);
+  font-style: italic;
+}
+.highlight .n,
+.highlight .nv,
+.highlight .vc,
+.highlight .vg,
+.highlight .vi,
+.highlight .nb {
+  color: var(--rg-syntax-variable);
+}
+.highlight .nf,
+.highlight .fm {
+  color: var(--rg-accent);
+}
+.highlight .o,
+.highlight .ow {
+  color: var(--rg-text-secondary);
+}
+.highlight .nc,
+.highlight .nn {
+  color: var(--rg-primary-lighter);
+}
