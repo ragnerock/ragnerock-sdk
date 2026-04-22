@@ -72,11 +72,35 @@ class _Pending:
         self.ops.clear()
 
     def has(self, op: str, resource: _Resource) -> bool:
-        """Return ``True`` if ``resource`` is already staged for ``op``."""
+        """Check whether a resource is already staged for a given operation.
+
+        Matching is by object identity, not equality, so two distinct
+        resources with the same field values are treated as different.
+
+        Args:
+            op (str): Operation name to look for (``"add"``, ``"update"``, or
+                ``"delete"``).
+            resource (_Resource): The resource instance to look for.
+
+        Returns:
+            bool: ``True`` if an identical ``(op, resource)`` pair is staged.
+        """
         return any(o == op and r is resource for o, r in self.ops)
 
     def remove_add(self, resource: _Resource) -> bool:
-        """Drop a pending add of ``resource``. Returns ``True`` if removed."""
+        """Cancel a pending add for a resource, if one is queued.
+
+        Used when a resource is staged for add and then deleted in the same
+        session — the add is undone rather than flushed and rolled back.
+
+        Args:
+            resource (_Resource): The resource whose pending add should be
+                dropped. Compared by identity.
+
+        Returns:
+            bool: ``True`` if a pending add was found and removed, ``False``
+            if no such add was queued.
+        """
         for i, (op, r) in enumerate(self.ops):
             if op == "add" and r is resource:
                 self.ops.pop(i)

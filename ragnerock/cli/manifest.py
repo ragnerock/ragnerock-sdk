@@ -72,10 +72,23 @@ _APPLY_ORDER: tuple[str, ...] = (
 def _expand_sources(sources: list[str]) -> list[str]:
     """Expand directory sources to their contained YAML files.
 
-    ``-`` and non-directory paths pass through unchanged (non-existent paths
-    are left for :func:`read_manifests` to surface with its existing error
-    wording). Directory sources are walked recursively, sorted for
-    deterministic ordering, with hidden entries and non-YAML files skipped.
+    ``-`` and non-directory paths pass through unchanged — non-existent
+    paths are left for :func:`read_manifests` to surface with its existing
+    error wording, so users get one consistent message per kind of failure.
+    Directory sources are walked recursively, sorted for deterministic
+    ordering, with hidden entries and non-YAML files skipped.
+
+    Args:
+        sources (list[str]): Source tokens as given on the command line.
+
+    Returns:
+        list[str]: Expanded list with directories replaced by their YAML
+        descendants.
+
+    Raises:
+        ManifestError: If a directory is unreadable, or if a directory
+            source contains no YAML manifests at all (a silent empty
+            expansion would mask a typo).
     """
     expanded: list[str] = []
     for source in sources:
@@ -145,7 +158,24 @@ def read_manifests(sources: list[str]) -> list[ManifestDoc]:
 
 
 def _parse_stream(text: str, source: str) -> list[ManifestDoc]:
-    """Parse a YAML stream (which may contain multiple documents)."""
+    """Parse a YAML stream into validated :class:`ManifestDoc` entries.
+
+    Empty documents (those that parse to ``None``, which includes the trailing
+    ``---`` that YAML sometimes emits) are dropped silently.
+
+    Args:
+        text (str): Raw YAML text; may contain multiple ``---``-delimited
+            documents.
+        source (str): Label used in error messages (file path or
+            ``"<stdin>"``).
+
+    Returns:
+        list[ManifestDoc]: One entry per non-empty document in the stream.
+
+    Raises:
+        ManifestError: If the text is not parseable YAML, or any document
+            fails :func:`_validate_doc`.
+    """
     try:
         raw_docs = list(yaml.safe_load_all(io.StringIO(text)))
     except yaml.YAMLError as e:
@@ -160,7 +190,26 @@ def _parse_stream(text: str, source: str) -> list[ManifestDoc]:
 
 
 def _validate_doc(raw: Any, source: str, index: int) -> ManifestDoc:
-    """Shape-check a single parsed document and resolve its kind."""
+    """Shape-check a single parsed document and resolve its kind.
+
+    Enforces the ``{apiVersion, kind, metadata.name, spec}`` skeleton,
+    rejects unsupported api versions and read-only kinds, and normalizes
+    missing pieces (``apiVersion`` defaults to :data:`DEFAULT_API_VERSION`,
+    missing ``spec`` defaults to an empty mapping).
+
+    Args:
+        raw (Any): A single YAML document as produced by :mod:`yaml`. Any
+            non-mapping value is rejected.
+        source (str): Label used in error messages (file path or
+            ``"<stdin>"``).
+        index (int): 0-based position of this document within ``source``.
+
+    Returns:
+        ManifestDoc: The validated, shape-checked manifest.
+
+    Raises:
+        ManifestError: For any shape, type, api version, or kind violation.
+    """
     where = f"{source} (doc #{index})"
     if not isinstance(raw, dict):
         raise ManifestError(f"{where}: manifest document must be a mapping.")
@@ -216,7 +265,15 @@ def sort_by_apply_order(docs: list[ManifestDoc]) -> list[ManifestDoc]:
     """Sort manifests by kind dependency so parents commit before children.
 
     Order: ``DocumentGroup → Operator → Document → Workflow → Annotation``.
-    Within a kind, declaration order is preserved (stable sort).
+    Within a kind, declaration order is preserved (stable sort). Unknown
+    kinds sort last, but this should never happen in practice because
+    :func:`_validate_doc` rejects them upstream.
+
+    Args:
+        docs (list[ManifestDoc]): Manifests in source order.
+
+    Returns:
+        list[ManifestDoc]: A new list in apply order.
     """
     priority = {kind: i for i, kind in enumerate(_APPLY_ORDER)}
     return sorted(docs, key=lambda d: priority.get(d.spec_kind.kind, len(_APPLY_ORDER)))

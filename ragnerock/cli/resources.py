@@ -174,15 +174,29 @@ def resolve_kind(name: str) -> KindSpec:
 
 
 def all_kinds() -> tuple[KindSpec, ...]:
-    """Return every registered :class:`KindSpec` in declaration order."""
+    """Return every registered :class:`KindSpec`.
+
+    Returns:
+        tuple[KindSpec, ...]: Specs in the declaration order of the registry.
+    """
     return _KINDS
 
 
 def resource_name(resource: _Resource) -> str | None:
-    """Best-effort display name for a resource.
+    """Compute a best-effort display name for a resource.
 
-    Uses ``name`` when present, otherwise ``operator_name`` (for annotations /
-    workflow nodes), otherwise the string form of the id.
+    Uses ``name`` when present (most kinds), falls back to ``operator_name``
+    (annotations and workflow nodes, which are identified by operator rather
+    than a free-text name), then to the id as a last resort. Returns
+    ``None`` only for resources that have no identity at all, which should
+    never happen for server-returned instances.
+
+    Args:
+        resource (_Resource): The resource to name.
+
+    Returns:
+        str | None: A human-usable name, or ``None`` if none of the
+        candidate attributes are set.
     """
     for attr in ("name", "operator_name"):
         value = getattr(resource, attr, None)

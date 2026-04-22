@@ -61,6 +61,23 @@ def _run_get(
     output: OutputFormat,
     filter_args: list[str],
 ) -> None:
+    """Execute the shared fetch-and-render path for ``get`` and ``describe``.
+
+    Resolves the kind alias, parses filter tokens, opens a session, and runs
+    either a single-name lookup or a filtered list — then hands the results
+    to :func:`render` in the requested format.
+
+    Args:
+        kind (str): Kind alias as typed on the command line.
+        name (str | None): Resource name, or ``None`` to list all matches.
+        output (OutputFormat): Format to render the result in.
+        filter_args (list[str]): ``key=value`` tokens to translate into
+            ``session.list`` kwargs.
+
+    Raises:
+        typer.Exit: Exits with code 1 for unknown kinds, missing resources,
+            or user/lookup errors; code 2 for unexpected SDK failures.
+    """
     try:
         spec = resolve_kind(kind)
     except UnknownKindError as e:

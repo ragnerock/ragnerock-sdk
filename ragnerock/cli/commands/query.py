@@ -58,4 +58,15 @@ def query_cmd(
 
 
 def _cell(value: object) -> str:
+    """Format a single cell value for tabular display.
+
+    ``None`` is rendered as an empty string so sparse result sets don't print
+    ``None`` in every null cell; everything else is stringified verbatim.
+
+    Args:
+        value (object): Raw cell value from the query result.
+
+    Returns:
+        str: Display-ready cell text.
+    """
     return "" if value is None else str(value)

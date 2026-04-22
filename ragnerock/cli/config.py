@@ -75,13 +75,23 @@ def build_engine(env: dict[str, str] | None = None) -> Engine:
 def _assemble_connection_string(
     host: str, email: str, password: str, project: str
 ) -> str:
-    """Build a ``ragnerock://`` DSN from split parts.
+    """Build a ``ragnerock://`` DSN from split environment parts.
 
     Host may be given bare (``api.ragnerock.com``) or as a full URL
-    (``https://api.ragnerock.com``). The scheme and any port are preserved.
-    Values are not percent-encoded — :func:`urllib.parse.urlparse` returns
-    userinfo fields unchanged, so encoding here would round-trip into the
-    stored credentials and break authentication.
+    (``https://api.ragnerock.com``). The scheme is dropped — the DSN form
+    owns scheme selection — but any explicit port is preserved. Values are
+    not percent-encoded: :func:`urllib.parse.urlparse` returns userinfo
+    fields unchanged, so encoding here would round-trip into the stored
+    credentials and break authentication.
+
+    Args:
+        host (str): Hostname or full URL for the API.
+        email (str): Account email.
+        password (str): Account password.
+        project (str): Project name.
+
+    Returns:
+        str: A connection string accepted by :func:`create_engine`.
     """
     parsed = urlparse(host if "://" in host else f"https://{host}")
     hostname = parsed.hostname or host

@@ -13,11 +13,22 @@ from ragnerock.session import Session
 
 @contextmanager
 def open_session() -> Iterator[Session]:
-    """Yield a connected :class:`Session` or exit with a config error.
+    """Yield a connected :class:`Session` sourced from environment variables.
 
-    Pulls credentials from environment variables (see :mod:`ragnerock.cli.config`),
-    constructs an engine, and opens a session context-manager style. On
-    :class:`ConfigError`, prints a message to stderr and exits non-zero.
+    Builds an :class:`Engine` via :func:`build_engine` (which reads
+    ``RAGNEROCK_*`` env vars) and opens a :class:`Session` as a context
+    manager, so the session is guaranteed to be closed when the ``with``
+    block exits. A :class:`ConfigError` during engine construction is
+    converted to a ``typer.Exit(1)`` with a message on stderr, since it
+    means the CLI was invoked without its required environment.
+
+    Yields:
+        Session: A session ready to issue requests against the configured
+        project.
+
+    Raises:
+        typer.Exit: Exits with code 1 if the environment is missing or
+            malformed.
     """
     try:
         engine = build_engine()

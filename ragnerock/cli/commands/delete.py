@@ -54,6 +54,21 @@ def delete_cmd(
 
 
 def _delete_from_files(sources: list[str]) -> None:
+    """Delete every resource named by the given manifest files.
+
+    Each manifest's ``kind`` and ``metadata.name`` are fed straight through
+    :func:`_delete_one`; the manifest's ``spec`` is ignored. Unlike apply,
+    this does not try to preserve dependency order — manifests are processed
+    in the order :func:`read_manifests` returns them.
+
+    Args:
+        sources (list[str]): Manifest paths, directories, or ``"-"`` for
+            STDIN. Same semantics as ``ragnerock apply -f``.
+
+    Raises:
+        typer.Exit: Exits with code 1 if a manifest fails to parse or any
+            individual delete fails.
+    """
     try:
         docs = read_manifests(sources)
     except ManifestError as e:
@@ -66,6 +81,22 @@ def _delete_from_files(sources: list[str]) -> None:
 
 
 def _delete_one(session: Session, spec: KindSpec, name: str) -> None:
+    """Delete a single resource by kind and name.
+
+    Refuses to delete :class:`Annotation`, :class:`Chunk`, and :class:`Page`
+    resources: their CLI delete paths would need an id (annotations) or are
+    server-managed (chunks, pages), and pretending otherwise would mislead
+    the user.
+
+    Args:
+        session (Session): Open session used to look up and stage the delete.
+        spec (KindSpec): Resource kind resolved from the CLI argument.
+        name (str): Value of ``metadata.name`` to delete.
+
+    Raises:
+        typer.Exit: Exits with code 1 if the kind is not delete-by-name, or
+            if no resource with that name exists.
+    """
     if spec.cls in (Annotation, Chunk, Page):
         typer.echo(
             f"{spec.kind} does not support name-based delete in the CLI.",

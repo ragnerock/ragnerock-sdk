@@ -85,9 +85,25 @@ class QueryResult:
         return pd.DataFrame(self.data, columns=self.columns)
 
     def __len__(self) -> int:
+        """Return the number of rows in the result.
+
+        Equivalent to :attr:`row_count`, exposed so ``len(result)`` works and
+        the object can be tested for truthiness.
+
+        Returns:
+            int: Row count.
+        """
         return self.row_count
 
     def __repr__(self) -> str:
+        """Return a debug representation with shape and timing, not the rows.
+
+        The row data is omitted deliberately: result sets can be large, and a
+        repr that dumps them makes logs and tracebacks unreadable.
+
+        Returns:
+            str: A short summary: columns, row count, and query time.
+        """
         return (
             f"QueryResult(columns={self.columns!r}, "
             f"row_count={self.row_count}, "

@@ -22,6 +22,7 @@ from ragnerock.resources import (
     FileType,
     Operator,
     Workflow,
+    WorkflowNode,
 )
 from ragnerock.resources.base import _Resource
 from ragnerock.resources.condition import compile_condition
@@ -89,6 +90,16 @@ def _apply_one(session: Session, doc: ManifestDoc) -> None:
 
 
 def _apply_document_group(session: Session, doc: ManifestDoc) -> None:
+    """Create or update a :class:`DocumentGroup` from a manifest.
+
+    Looks up the group by ``metadata.name``; if missing, creates it. If
+    present, overlays the spec fields onto the existing resource and stages
+    an update. Either path is idempotent.
+
+    Args:
+        session (Session): Open session used to look up and stage changes.
+        doc (ManifestDoc): Parsed manifest for a ``DocumentGroup``.
+    """
     existing = session.get(DocumentGroup, name=doc.name)
     if existing is None:
         group = DocumentGroup(name=doc.name, **_clean(doc.spec))
@@ -101,6 +112,15 @@ def _apply_document_group(session: Session, doc: ManifestDoc) -> None:
 
 
 def _apply_operator(session: Session, doc: ManifestDoc) -> None:
+    """Create or update an :class:`Operator` from a manifest.
+
+    String enum values in ``spec.chunk_type`` are coerced to :class:`ChunkType`
+    before the create/update decision.
+
+    Args:
+        session (Session): Open session used to look up and stage changes.
+        doc (ManifestDoc): Parsed manifest for an ``Operator``.
+    """
     spec = _coerce_operator_spec(doc.spec)
     existing = session.get(Operator, name=doc.name)
     if existing is None:
@@ -114,6 +134,17 @@ def _apply_operator(session: Session, doc: ManifestDoc) -> None:
 
 
 def _apply_document(session: Session, doc: ManifestDoc) -> None:
+    """Create or update a :class:`Document` from a manifest.
+
+    ``spec.file_type`` strings are coerced to :class:`FileType`, and a
+    ``spec.group`` name is resolved to a ``group_id`` via the session before
+    the create/update decision.
+
+    Args:
+        session (Session): Open session used to resolve references and stage
+            changes.
+        doc (ManifestDoc): Parsed manifest for a ``Document``.
+    """
     spec = _coerce_document_spec(session, doc.spec)
     existing = session.get(Document, name=doc.name)
     if existing is None:
@@ -127,6 +158,19 @@ def _apply_document(session: Session, doc: ManifestDoc) -> None:
 
 
 def _apply_workflow(session: Session, doc: ManifestDoc) -> None:
+    """Create or update a :class:`Workflow` along with its nodes and edges.
+
+    Nodes and edges are popped off the spec before the workflow itself is
+    created or updated, then reconciled in a second pass — the node CRUD
+    calls need a server-assigned workflow id, so the workflow-level change
+    is committed first.
+
+    Args:
+        session (Session): Open session used to look up and stage changes.
+            Committed partway through so downstream node calls can reference
+            the workflow id.
+        doc (ManifestDoc): Parsed manifest for a ``Workflow``.
+    """
     nodes_spec = doc.spec.pop("nodes", None) or []
     edges_spec = doc.spec.pop("edges", None) or []
 
@@ -241,7 +285,21 @@ def _apply_workflow_nodes(
     session.commit()
 
 
-def _find_node_by_operator(workflow: Workflow, operator_name: str) -> Any:
+def _find_node_by_operator(
+    workflow: Workflow, operator_name: str
+) -> WorkflowNode | None:
+    """Find a workflow node whose operator has the given name.
+
+    Args:
+        workflow (Workflow): Workflow whose nodes to search.
+        operator_name (str): Operator name to match on, as present in
+            :attr:`WorkflowNode.operator_name`.
+
+    Returns:
+        WorkflowNode | None: The first matching node, or ``None`` if no node
+        references that operator. Node identity within a workflow is by
+        operator, so there is at most one match.
+    """
     for node in workflow.nodes:
         if node.operator_name == operator_name:
             return node
@@ -249,6 +307,19 @@ def _find_node_by_operator(workflow: Workflow, operator_name: str) -> Any:
 
 
 def _apply_annotation(session: Session, doc: ManifestDoc) -> None:
+    """Create an :class:`Annotation` from a manifest.
+
+    Annotations are additive only — there is no server-side update-by-name
+    path — so each apply creates a new annotation. A ``spec.operator`` name
+    is resolved to ``operator_id`` before creation. The manifest's
+    ``metadata.name`` is used for CLI output only; annotation identity lives
+    on ``root_id``.
+
+    Args:
+        session (Session): Open session used to resolve the operator and
+            stage the create.
+        doc (ManifestDoc): Parsed manifest for an ``Annotation``.
+    """
     spec = dict(doc.spec)
     op_name = spec.pop("operator", None)
     if op_name is not None and "operator_id" not in spec:
