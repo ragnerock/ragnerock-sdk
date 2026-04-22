@@ -242,7 +242,7 @@ class _Payloads:
             "n_tokens": None,
             "n_pages": None,
             "n_mb": None,
-            "execution_trace": None,
+            "execution_trace": {"nodes": [], "errors": [], "total_output_tokens": 0},
             "phase": None,
         }
         base.update(overrides)

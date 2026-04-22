@@ -8,13 +8,23 @@ methods like ``doc.list(Chunk)``.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from datetime import datetime
+from typing import TYPE_CHECKING, Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, PrivateAttr
+from pydantic import BaseModel, BeforeValidator, ConfigDict, PrivateAttr
 
 if TYPE_CHECKING:
     from ragnerock.iterator import PaginatedIterator
     from ragnerock.session import Session
+
+
+def _empty_str_to_none(value: Any) -> Any:
+    if isinstance(value, str) and value == "":
+        return None
+    return value
+
+
+OptionalDateTime = Annotated[datetime | None, BeforeValidator(_empty_str_to_none)]
 
 
 class _Resource(BaseModel):

@@ -7,12 +7,10 @@ spec:
   is_active: true
   auto_run_on_upload: false
   nodes:
-    - name: extract
-      operator: entity-extractor
+    - operator: entity-extractor
       on_error: FAIL_JOB
       max_retries: 2
-    - name: classify
-      operator: sentiment-classifier
+    - operator: sentiment-classifier
       condition:
         extract:
           entities:

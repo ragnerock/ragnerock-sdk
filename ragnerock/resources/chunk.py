@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from enum import IntEnum
 from typing import Any
 from uuid import UUID
 
-from ragnerock.resources.base import _Resource
+from ragnerock.resources.base import OptionalDateTime, _Resource
 
 
 class ChunkType(IntEnum):
@@ -44,4 +43,4 @@ class Chunk(_Resource):
     end_index: int | None = None
     chunk_type: ChunkType | None = None
     metadata: dict[str, Any] | None = None
-    created_at: datetime | None = None
+    created_at: OptionalDateTime = None

@@ -10,6 +10,13 @@ tasks:
     silent: true
     vars:
       LOG_LEVEL: '{{ .LOG_LEVEL | default "INFO" }}'
+  test-cli:
+    desc: Run CLI tests
+    cmds:
+      - ./scripts/run-cli-tests.sh
+    silent: true
+    vars:
+      LOG_LEVEL: '{{ .LOG_LEVEL | default "INFO" }}'
   test-integration:
     desc: Run integration tests
     cmds:

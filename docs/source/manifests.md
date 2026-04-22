@@ -115,17 +115,15 @@ spec:
   is_active: true
   auto_run_on_upload: false
   nodes:
-    - name: extract
-      operator: entity-extractor
+    - operator: extract
       on_error: FAIL_JOB
       max_retries: 2
-    - name: classify
-      operator: sentiment-classifier
+    - operator: classifier
       condition:
-        extract:
-          entities: { "$gt": 0 }
+        extract.entities:
+          $count: { $gt: 0 }
   edges:
-    - [extract, classify]
+    - [extract, classifier]
 ```
 
 **Spec Fields**
@@ -138,21 +136,99 @@ spec:
 
 `spec.nodes` is a list of node declarations with the following fields:
 
-| Key                  | Description                                                             | Required | Type   | Default   |
-| -------------------- | ----------------------------------------------------------------------- | -------- | ------ | --------- |
-| `name`               | Manifest-local alias used for edge wiring                       | Yes | `str` | |
-| `operator`           | Name of the pre-existing operator to include in the workflow    | Yes | `str` | |
-| `condition`          | Conditionals to gate node execution behind                      | No  | `dict` | `{}` |
-| `persist`            | Should annotations be persisted to the database                 | No | `bool` | `True` |
-| `on_error`           | Behavior in the event the node fails, `FAIL_JOB` or `SKIP_NODE` | `str` | `FAIL_JOB` |
-| `max_retries`        | Max number of times to retry a job on a node                    | `int` | `0` |
+| Key                  | Description                                                             | Required | Type   | Default    |
+| -------------------- | ----------------------------------------------------------------------- | -------- | ------ | ---------- |
+| `operator`           | Name of the pre-existing operator to include in the workflow            | Yes      | `str`  |            |
+| `condition`          | Conditionals to gate node execution behind                              | No       | `dict` | `{}`       |
+| `persist`            | Should annotations be persisted to the database                         | No       | `bool` | `True`     |
+| `on_error`           | Behavior in the event the node fails, `FAIL_JOB` or `SKIP_NODE`         | No       | `str`  | `FAIL_JOB` |
+| `max_retries`        | Max number of times to retry a job on a node                            | No       | `int`  | `0`        | 
 
-Conditional statements are formatted as nested objects detailing the upstream node, its annotation field, and the condition that must match in order for the node to execute. These are formatted as
+Conditional statements are formatted as nested objects detailing the upstream node, its annotation field, and the condition that must match in order for the node to execute
 
-```yaml
-condition:
-  <upstream node name>:
-    <upstream node annotation property>: 
+The conditional dictionary is modeled after MongoDB's filter setup, this means that the following comparison operators are available:
+
+| Name                     | Key    |
+| ------------------------ | ------ |
+| Equals                   | `$eq`  |
+| Not equal to             | `$ne`  |
+| Greater than             | `$gt`  |
+| Less than                | `$lt`  |
+| Greater than or equal to | `$gte` |
+| Less than or equal to    | `$lte` |
+
+You can then use the operators against upstream nodes/properties, for example we may want to check that the `sentiment_score` property of our `extract` node is greater than `0.5`, we can do that like so
+
+```json
+{
+  "extract.sentiment_score": {
+    "$gt": 0.5
+  }
+}
+```
+
+Logical operators are also supported
+
+| Name | Key    |
+| ---- | ------ |
+| And  | `$and` |
+| Or   | `$or`  |
+| Not  | `$not` |
+
+`$and` and `$or` logical operators take lists as their value, for example, if we wanted to only execute on annotations with a sentiment score above `0.5` and a confidence greater than or equal to `0.9`, we would do it like follows:
+
+```json
+{
+  "$and": [
+    {
+      "extract.sentiment_score" : {
+        "$gt": 0.5
+      },
+      "extract.confidence": {
+        "$gte": 0.9
+      }
+    }
+  ]
+}
+```
+
+`$not` statements take a single condition as their value
+
+```json
+{
+  "$not": {
+    "extract.confidence": {
+      "$gte": 0.9
+    }
+  }
+}
+```
+
+In the event the property you want to evaluate is a list, the following list operations are available
+
+| Name     | Key         |
+| -------- | ----------- |
+| Count    | `$count`    |
+| Contains | `$contains` |
+| Minimum  | `$min`      |
+| Maximum  | `$max`      |
+
+If I wanted to construct a conditional to only execute on sentiment scores greater than 0.5 with more than 10 positive values, we can do the following:
+
+```json
+{
+  "$and": {
+    "extract.sentiment_score": {
+      "$gt": 0.5
+    },
+    "extract.positive_values": {
+      "$count": {
+        "$gt": 10
+      }
+    }
+  }
+}
+```
 
 `spec.edges` is a list of directed edges. Each entry may be either a pair:
 
@@ -161,7 +237,7 @@ edges:
   - [extract, classify]
 ```
 
-…or an explicit mapping:
+or an explicit mapping:
 
 ```yaml
 edges:
@@ -169,82 +245,62 @@ edges:
     to: classify
 ```
 
-Edge endpoints refer to node aliases (the `name:` field on `spec.nodes[*]`).
+Edge endpoints refer to node operators (the `operator:` field on `spec.nodes[*]`).
 
-**Apply flow for workflows** (good to understand; important for debugging):
+Every operator referenced by a workflow must already exist on the server or appear earlier in the same multi-doc manifest.
 
-1. The workflow itself is upserted first — this assigns an `id` on create.
-2. Each `spec.nodes` entry is reconciled by operator name: existing nodes with the same `operator_name` are updated in place; new nodes are added via `workflow.add_node(...)`. Nodes not present in the manifest are left alone (we don't auto-delete to avoid surprising deletions).
-3. A second commit wires edges using the `>>` operator on the resolved nodes.
-
-Because step 2 needs operator ids, every operator referenced by a workflow must already exist on the server or appear earlier in the same multi-doc manifest.
-
-### `Annotation`
+## Example Manifest
 
 ```yaml
-apiVersion: v1
-kind: Annotation
-metadata:
-  name: my-annotation-stub
-spec:
-  operator: sentiment-classifier    # by name; resolved to operator_id
-  document_id: 00000000-0000-0000-0000-000000000101
-  data:
-    sentiment: positive
-  confidence_score: 0.95
-```
-
-| Field | Required | Notes |
-|---|---|---|
-| `operator` (or `operator_id`) | yes | Operator name or UUID. Name is resolved at apply time. |
-| `document_id` / `chunk_id` / `page_id` | one of these | Target of the annotation. |
-| `data` | yes | Payload; must satisfy the operator's `jsonschema`. |
-| `confidence_score` | no | Float between 0 and 1. |
-
-Annotations are usually generated by running a workflow rather than authored by hand. This kind is provided for completeness and for programmatic back-filling.
-
-## Worked example — one file, end to end
-
-```yaml
-# pipeline.yaml
 apiVersion: v1
 kind: DocumentGroup
-metadata: { name: quarterly-reports }
+metadata:
+  name: quarterly-reports
 spec: {}
 ---
 apiVersion: v1
 kind: Operator
-metadata: { name: sentiment-classifier }
+metadata:
+  name: sentiment-classifier
 spec:
   jsonschema:
     type: object
     properties:
-      sentiment: { type: string, enum: [positive, negative, neutral] }
-  generation_prompt: "Classify the sentiment of this paragraph."
+      sentiment: 
+        type: string
+        enum:
+          - positive
+          - negative
+          - neutral
+  generation_prompt: |
+    Classify the sentiment of this paragraph.
   chunk_type: PARAGRAPH
 ---
 apiVersion: v1
 kind: Document
-metadata: { name: q3-report.pdf }
+metadata:
+  name: q3-report.pdf
 spec:
   file_path: ./reports/q3.pdf
   group: quarterly-reports
 ---
 apiVersion: v1
 kind: Workflow
-metadata: { name: sentiment-pipeline }
+metadata:
+  name: sentiment-pipeline
 spec:
-  description: "Sentiment over quarterly reports"
+  auto_run_on_upload: false
+  description: |
+    Sentiment over quarterly reports
   nodes:
-    - name: classify
-      operator: sentiment-classifier
+    - operator: sentiment-classifier
   edges: []
 ```
 
+This example assumes a file located at `./reports/q3.pdf` with the above manifest saved at `manifest.yaml`
+
 ```bash
-ragnerock apply -f pipeline.yaml
+ragnerock apply -f manifest.yaml
 ragnerock run sentiment-pipeline --documents q3-report.pdf --wait
 ragnerock query "SELECT document_id, sentiment, COUNT(*) AS n FROM sentiment_classifier GROUP BY 1, 2"
 ```
-
-See [CLI](cli.md) for the full verb reference.

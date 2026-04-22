@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime
 from enum import IntEnum, auto
 from typing import Any
 from uuid import UUID
 
-from ragnerock.resources.base import _Resource
+from ragnerock.resources.base import OptionalDateTime, _Resource
 
 
 class JobStatus(IntEnum):
@@ -50,9 +49,9 @@ class Job(_Resource):
     document_id: UUID | None = None
     status: JobStatus | None = None
     status_message: str | None = None
-    start_time: datetime | None = None
-    end_time: datetime | None = None
-    execution_trace: list[dict[str, Any]] | None = None
+    start_time: OptionalDateTime = None
+    end_time: OptionalDateTime = None
+    execution_trace: dict[str, Any] | None = None
     job_type: JobType | None = None
     should_parse: bool | None = None
     capture_execution_log: bool | None = None

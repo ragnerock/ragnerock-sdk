@@ -131,10 +131,6 @@ class TestGetValidation:
         with pytest.raises(ValidationError):
             session.get(Document)
 
-    def test_get_document_group_by_name_unsupported(self, session):
-        with pytest.raises(ValidationError):
-            session.get(DocumentGroup, name="whatever")
-
     def test_get_chunk_by_name_unsupported(self, session):
         with pytest.raises(ValidationError):
             session.get(Chunk, name="whatever")

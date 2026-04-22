@@ -211,10 +211,10 @@ class Session:
         """Fetch a single resource by id or name.
 
         Exactly one of ``id`` or ``name`` must be supplied. Not every resource
-        type supports name lookup: :class:`DocumentGroup`, :class:`Chunk`,
-        :class:`Page`, :class:`Annotation`, and :class:`Job` are id-only.
-        :class:`Operator` and :class:`Workflow` support name lookup by
-        listing and matching client-side. :class:`WorkflowNode` requires the
+        type supports name lookup: :class:`Chunk`, :class:`Page`,
+        :class:`Annotation`, and :class:`Job` are id-only.
+        :class:`DocumentGroup`, :class:`Operator`, and :class:`Workflow`
+        support name lookup by listing and matching client-side. :class:`WorkflowNode` requires the
         parent workflow via either ``workflow_id=`` or ``workflow_name=``;
         the server has no standalone node endpoint, so this fetches the
         parent workflow and returns the matching node. Node ``name=`` lookup
@@ -263,13 +263,19 @@ class Session:
             return self._bind(_build(Document, response))  # type: ignore[return-value]
 
         if resource_type is DocumentGroup:
-            if name is not None:
-                raise ValidationError("DocumentGroup does not support lookup by name")
-            try:
-                response = client.groups.get(self._engine.project_id, _as_uuid(id))  # type: ignore[arg-type]
-            except NotFoundError:
-                return None
-            return self._bind(_build(DocumentGroup, response))  # type: ignore[return-value]
+            if id is not None:
+                try:
+                    response = client.groups.get(self._engine.project_id, _as_uuid(id))
+                except NotFoundError:
+                    return None
+                return self._bind(_build(DocumentGroup, response))  # type: ignore[return-value]
+            return self._find_by_name_via_list(  # type: ignore[return-value]
+                DocumentGroup,
+                name,
+                _fetch_operator_by_id=lambda gid: client.groups.get(
+                    self._engine.project_id, gid
+                ),
+            )
 
         if resource_type is Chunk:
             if name is not None:

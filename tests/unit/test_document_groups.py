@@ -43,9 +43,38 @@ class TestCrud:
         assert group is not None
         assert group.name == "Q1 contracts"
 
-    def test_get_by_name_raises(self, session):
-        with pytest.raises(ValidationError):
-            session.get(DocumentGroup, name="whatever")
+    def test_get_by_name_lists_then_fetches(
+        self, httpx_mock, session, payloads, base_url, project_id
+    ):
+        group_id = "00000000-0000-0000-0000-000000000201"
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(rf".*/api/projects/{project_id}/groups/\?.*"),
+            json=payloads.list_envelope(
+                "groups",
+                [payloads.document_group(id=group_id, name="Q1 contracts")],
+            ),
+        )
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{base_url}/api/projects/{project_id}/groups/{group_id}",
+            json=payloads.document_group(id=group_id, name="Q1 contracts"),
+        )
+        group = session.get(DocumentGroup, name="Q1 contracts")
+        assert group is not None
+        assert group.id is not None
+        assert str(group.id) == group_id
+        assert group.name == "Q1 contracts"
+
+    def test_get_by_missing_name_returns_none(
+        self, httpx_mock, session, payloads, project_id
+    ):
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(rf".*/api/projects/{project_id}/groups/\?.*"),
+            json=payloads.list_envelope("groups", []),
+        )
+        assert session.get(DocumentGroup, name="does_not_exist") is None
 
     def test_update_sends_new_name(
         self, httpx_mock, session, payloads, base_url, project_id

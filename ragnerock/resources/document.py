@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from enum import IntEnum, auto
 from typing import Any
 from uuid import UUID
 
-from ragnerock.resources.base import _Resource
+from ragnerock.resources.base import OptionalDateTime, _Resource
 
 
 class FileType(IntEnum):
@@ -62,8 +61,8 @@ class Document(_Resource):
     file_type: FileType | None = None
     storage_path: str | None = None
     filesize: int | None = None
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
+    created_at: OptionalDateTime = None
+    updated_at: OptionalDateTime = None
     created_by_id: UUID | None = None
     metadata: dict[str, Any] | None = None
 
@@ -95,4 +94,4 @@ class DocumentGroup(_Resource):
     id: UUID | None = None
     name: str | None = None
     project_id: UUID | None = None
-    created_at: datetime | None = None
+    created_at: OptionalDateTime = None

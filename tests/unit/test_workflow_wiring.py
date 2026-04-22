@@ -193,15 +193,28 @@ class TestWorkflowAddNode:
 
         node = wf.add_node(
             operator=op,
-            condition={"extract.total": {"gt": 0}},
+            condition={"extract.total": {"$gt": 0}},
             persist=False,
             on_error="SKIP_NODE",
             max_retries=3,
         )
-        assert node.condition == {"extract.total": {"gt": 0}}
+        assert node.condition == {
+            "type": "field_comparison",
+            "field_path": "extract.total",
+            "operator": ">",
+            "value": 0,
+        }
         assert node.persist is False
         assert node.on_error == "SKIP_NODE"
         assert node.max_retries == 3
+
+    def test_add_node_rejects_malformed_condition(self, session, workflow_id):
+        wf = Workflow(id=workflow_id, name="wf")
+        wf._bind(session)  # type: ignore[arg-type]
+        op = Operator(id=uuid4(), name="classify")
+
+        with pytest.raises(ValidationError, match="unknown operator"):
+            wf.add_node(operator=op, condition={"score": {"$bogus": 0}})
 
     def test_add_node_on_unbound_workflow_raises(self, workflow_id):
         wf = Workflow(id=workflow_id, name="wf")

@@ -173,3 +173,35 @@ class TestRefresh:
         session._bind(job)
         with pytest.raises(ValidationError):
             session.refresh(job)
+
+    def test_refresh_tolerates_empty_datetime_strings(
+        self, httpx_mock, session, payloads
+    ):
+        job_id = "00000000-0000-0000-0000-000000000801"
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(rf".*/api/jobs/{job_id}$"),
+            json=payloads.job(
+                id=job_id,
+                status=int(JobStatus.IN_PROGRESS),
+                start_time="",
+                end_time="",
+            ),
+        )
+        job = Job(id=job_id, status=JobStatus.IN_PROGRESS)
+        session._bind(job)
+        job.refresh()
+        assert job.start_time is None
+        assert job.end_time is None
+
+    def test_get_tolerates_empty_datetime_strings(self, httpx_mock, session, payloads):
+        job_id = "00000000-0000-0000-0000-000000000801"
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(rf".*/api/jobs/{job_id}$"),
+            json=payloads.job(id=job_id, start_time="", end_time=""),
+        )
+        job = session.get(Job, id=job_id)
+        assert job is not None
+        assert job.start_time is None
+        assert job.end_time is None

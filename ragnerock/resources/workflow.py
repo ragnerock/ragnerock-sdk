@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from ragnerock.errors import ValidationError
-from ragnerock.resources.base import _Resource
+from ragnerock.resources.base import OptionalDateTime, _Resource
+from ragnerock.resources.condition import compile_condition
 
 if TYPE_CHECKING:
     from ragnerock.resources.operator import Operator
@@ -160,8 +160,8 @@ class Workflow(_Resource):
     is_active: bool = True
     auto_run_on_upload: bool = True
     created_by_id: UUID | None = None
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
+    created_at: OptionalDateTime = None
+    updated_at: OptionalDateTime = None
     execution_order: list[UUID] = []
     nodes: list[WorkflowNode] = []
 
@@ -183,8 +183,10 @@ class Workflow(_Resource):
 
         Args:
             operator (Operator): A persisted operator (must have an ``id``).
-            condition (dict[str, Any] | None): Optional predicate restricting
-                when the node fires.
+            condition (dict[str, Any] | None): Optional MongoDB-style predicate
+                restricting when the node fires. Compiled into the server's
+                condition grammar via
+                :func:`ragnerock.resources.condition.compile_condition`.
             persist (bool): Whether annotations produced here are persisted.
             on_error (str): Error-handling policy.
             max_retries (int): Retry count on transient failure.
@@ -194,8 +196,8 @@ class Workflow(_Resource):
 
         Raises:
             RuntimeError: This workflow has no session back-reference.
-            ValidationError: This workflow has not been committed, or
-                ``operator`` has no ``id``.
+            ValidationError: This workflow has not been committed,
+                ``operator`` has no ``id``, or ``condition`` is malformed.
         """
         if self._session is None:
             raise RuntimeError(
@@ -213,11 +215,13 @@ class Workflow(_Resource):
                 "call session.commit() after adding the operator."
             )
 
+        compiled = compile_condition(condition) if condition is not None else None
+
         node = WorkflowNode(
             workflow_id=self.id,
             operator_id=operator.id,
             operator_name=operator.name,
-            condition=condition,
+            condition=compiled,
             persist=persist,
             on_error=on_error,
             max_retries=max_retries,

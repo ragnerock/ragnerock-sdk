@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from ragnerock.resources.base import _Resource
+from ragnerock.resources.base import OptionalDateTime, _Resource
 from ragnerock.resources.chunk import ChunkType
 
 
@@ -28,4 +27,4 @@ class Operator(_Resource):
     chunk_type: ChunkType | None = None
     batch_size: int | None = None
     multi_annotation: bool = False
-    created_at: datetime | None = None
+    created_at: OptionalDateTime = None

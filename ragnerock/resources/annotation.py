@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from ragnerock.resources.base import _Resource
+from ragnerock.resources.base import OptionalDateTime, _Resource
 
 
 class Annotation(_Resource):
@@ -27,8 +26,8 @@ class Annotation(_Resource):
     data: dict[str, Any] | None = None
     confidence_score: float | None = None
     generation_metadata: dict[str, Any] | None = None
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
+    created_at: OptionalDateTime = None
+    updated_at: OptionalDateTime = None
 
     @property
     def id(self) -> UUID | None:

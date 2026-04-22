@@ -13,6 +13,7 @@ from ragnerock.cli.manifest import (
     sort_by_apply_order,
 )
 from ragnerock.cli.session import open_session
+from ragnerock.errors import ValidationError
 from ragnerock.resources import (
     Annotation,
     ChunkType,
@@ -23,6 +24,7 @@ from ragnerock.resources import (
     Workflow,
 )
 from ragnerock.resources.base import _Resource
+from ragnerock.resources.condition import compile_condition
 from ragnerock.session import Session
 
 
@@ -157,15 +159,16 @@ def _apply_workflow_nodes(
     if not isinstance(edges_spec, list):
         raise typer.BadParameter("workflow.spec.edges must be a list")
 
-    alias_to_node = {}  # manifest alias → committed WorkflowNode
+    nodes_by_op = {}  # operator name → committed WorkflowNode
     for entry in nodes_spec:
         if not isinstance(entry, dict):
             raise typer.BadParameter("each workflow node must be a mapping")
-        alias = entry.get("name")
-        op_name = entry.get("operator")
-        if not alias or not op_name:
+        # Accept `operator_name` as an alias so YAML emitted by `get -o yaml`
+        # (which serializes the SDK field name) round-trips back through apply.
+        op_name = entry.get("operator") or entry.get("operator_name")
+        if not op_name:
             raise typer.BadParameter(
-                "each workflow node requires 'name' and 'operator'"
+                "each workflow node requires 'operator' (or 'operator_name')"
             )
         operator = session.get(Operator, name=op_name)
         if operator is None:
@@ -175,45 +178,61 @@ def _apply_workflow_nodes(
             )
             raise typer.Exit(code=1)
         existing = _find_node_by_operator(workflow, op_name)
-        if existing is None:
-            node = workflow.add_node(
-                operator=operator,
-                condition=entry.get("condition"),
-                persist=entry.get("persist", True),
-                on_error=entry.get("on_error", "FAIL_JOB"),
-                max_retries=entry.get("max_retries", 0),
-            )
-            alias_to_node[alias] = node
-        else:
-            if "condition" in entry:
-                existing.condition = entry["condition"]
-            if "persist" in entry:
-                existing.persist = entry["persist"]
-            if "on_error" in entry:
-                existing.on_error = entry["on_error"]
-            if "max_retries" in entry:
-                existing.max_retries = entry["max_retries"]
-            session.update(existing)
-            alias_to_node[alias] = existing
+        try:
+            if existing is None:
+                node = workflow.add_node(
+                    operator=operator,
+                    condition=entry.get("condition"),
+                    persist=entry.get("persist", True),
+                    on_error=entry.get("on_error", "FAIL_JOB"),
+                    max_retries=entry.get("max_retries", 0),
+                )
+                nodes_by_op[op_name] = node
+            else:
+                # Workflow GET responses carry each node's `id` but often
+                # omit `workflow_id` / `operator_id` (they're implicit from
+                # the URL and operator name). Backfill them from context so
+                # the update call has everything it needs.
+                if existing.workflow_id is None:
+                    existing.workflow_id = workflow.id
+                if existing.operator_id is None:
+                    existing.operator_id = operator.id
+                if "condition" in entry:
+                    raw = entry["condition"]
+                    existing.condition = (
+                        compile_condition(raw) if raw is not None else None
+                    )
+                if "persist" in entry:
+                    existing.persist = entry["persist"]
+                if "on_error" in entry:
+                    existing.on_error = entry["on_error"]
+                if "max_retries" in entry:
+                    existing.max_retries = entry["max_retries"]
+                session.update(existing)
+                nodes_by_op[op_name] = existing
+        except ValidationError as e:
+            raise typer.BadParameter(
+                f"workflow {workflow.name!r} node {op_name!r}: {e}"
+            ) from e
 
     session.commit()
 
     for edge in edges_spec:
         if isinstance(edge, list) and len(edge) == 2:
-            src_alias, dst_alias = edge
+            src_name, dst_name = edge
         elif isinstance(edge, dict):
-            src_alias = edge.get("from")
-            dst_alias = edge.get("to")
+            src_name = edge.get("from")
+            dst_name = edge.get("to")
         else:
             raise typer.BadParameter(
                 "each edge must be [src, dst] or {from: src, to: dst}"
             )
-        src = alias_to_node.get(src_alias)
-        dst = alias_to_node.get(dst_alias)
+        src = nodes_by_op.get(src_name)
+        dst = nodes_by_op.get(dst_name)
         if src is None or dst is None:
             typer.echo(
-                f"workflow {workflow.name!r}: edge references unknown node "
-                f"alias ({src_alias!r} -> {dst_alias!r})",
+                f"workflow {workflow.name!r}: edge references unknown operator "
+                f"({src_name!r} -> {dst_name!r})",
                 err=True,
             )
             raise typer.Exit(code=1)
