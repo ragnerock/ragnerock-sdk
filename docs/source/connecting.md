@@ -2,20 +2,20 @@
 
 ## Authentication options
 
-The SDK supports two ways to authenticate against the Ragnerock API:
+The SDK supports two authentication mechanisms
 
-- **Email + password** — for interactive accounts. The SDK exchanges these for a bearer token on the first session via `POST /api/auth/login`.
-- **API token** — for CI, scripts, and service accounts. A pre-issued bearer token is attached to every request as `Authorization: Bearer <token>`; no login round-trip is made.
+- Email + Password
+- API token
 
 ## Connection string
 
 ```
 ragnerock://{email}:{password}@{host}[:{port}]/{project_name}
 ragnerock://token:{api_token}@{host}[:{port}]/{project_name}
-ragnerock://{host}[:{port}]/{project_name}                  # token from env
+ragnerock://{host}[:{port}]/{project_name}                    # Token pulled from `RAGNEROCK_API_TOKEN`
 ```
 
-The literal username `token` is a sentinel: it means the "password" slot holds a bearer token instead of a password. When no userinfo is present, the token is read from the `RAGNEROCK_API_TOKEN` environment variable.
+The literal username `token` indicates that the "password" slot in the connection string holds a bearer token instead of a password. When no userinfo is present, the token is read from the `RAGNEROCK_API_TOKEN` environment variable.
 
 Examples:
 
@@ -35,7 +35,7 @@ engine = create_engine("ragnerock://token:eyJhbGciOi...@api.ragnerock.com/my_pro
 engine = create_engine("ragnerock://api.ragnerock.com/my_project")
 ```
 
-The email and password are URL-encoded; characters like `@`, `:`, `/`, and `#` in a password must be percent-encoded. The same applies to API tokens embedded in the DSN: characters like `:`, `/`, `@`, `?`, `#`, `%` must be percent-encoded. Most tokens (JWTs, opaque alphanumerics) are safe as-is.
+The email and password are URL-encoded and characters like `@`, `:`, `/`, and `#` in a password must be percent-encoded
 
 ## From environment
 
@@ -52,19 +52,7 @@ The CLI's `build_engine` resolves an engine from these variables:
 
 When `RAGNEROCK_API_TOKEN` is set together with `RAGNEROCK_HOST` and `RAGNEROCK_PROJECT`, email and password are not required.
 
-### Precedence
-
-For tokens specifically:
-
-1. A token embedded in the DSN (`token:…@host` form) wins.
-2. Otherwise, `RAGNEROCK_API_TOKEN` from the environment is used.
-3. If the DSN supplies email/password while `RAGNEROCK_API_TOKEN` is also set in the environment, `create_engine` raises `ValueError` rather than silently picking one.
-
-## Security
-
-- Prefer `RAGNEROCK_API_TOKEN` over inline DSNs in shared environments — connection strings can end up in shell history, CI logs, and process listings.
-- Never commit a token-bearing DSN to source control.
-- The SDK does not log the token. If you build error messages from your own code, be careful not to echo the DSN back.
+In the event a token is not specified in the DSN (e.g. `ragnerock://token:...@host...`), then the SDK will fall back to pulling from the `RAGNEROCK_API_TOKEN` environment variable. In the event that both an API token and email/password are supplied, the SDK will raise a `ValueError` to indicate this.
 
 ## Lazy connection
 
@@ -76,7 +64,7 @@ with Session(engine) as session:     # login + project lookup happen here
     ...
 ```
 
-If the credentials are wrong or the project doesn't exist, `Session(engine).__enter__` raises. With API-token mode there is no login call — a bad token surfaces as `AuthenticationError` on the first protected request (typically the project-name lookup).
+If the credentials are wrong or the project doesn't exist, `Session(engine).__enter__` raises. With API-token mode there is no login call, instead a bad token surfaces as `AuthenticationError` on the first protected request.
 
 ## Errors you might see here
 
