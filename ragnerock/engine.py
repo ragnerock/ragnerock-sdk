@@ -64,9 +64,7 @@ class Engine:
         has_password_auth = email is not None and password is not None
         has_token_auth = auth_token is not None
         if has_password_auth and has_token_auth:
-            raise ValueError(
-                "Provide either auth_token or (email, password), not both"
-            )
+            raise ValueError("Provide either auth_token or (email, password), not both")
         if not has_password_auth and not has_token_auth:
             raise ValueError(
                 "Missing authentication: provide auth_token or (email, password)"

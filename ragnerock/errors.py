@@ -69,6 +69,43 @@ class ValidationError(RagnerockError):
     """Raised when request parameters are invalid or preconditions fail."""
 
 
+class RateLimitError(RagnerockError):
+    """Raised when the API returns HTTP 429 after retries have been exhausted.
+
+    Attributes:
+        retry_after (float | None): Seconds to wait before retrying, parsed
+            from the response's ``Retry-After`` header when present. ``None``
+            if the server didn't send one (or it couldn't be parsed).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        suggestion: str | None = None,
+        details: dict[str, Any] | None = None,
+        retry_after: float | None = None,
+    ) -> None:
+        """Initialize a rate-limit error.
+
+        Args:
+            message (str): Human-readable error message.
+            status_code (int | None): HTTP status code (typically 429).
+            suggestion (str | None): Actionable hint from the server.
+            details (dict[str, Any] | None): Extra structured error context.
+            retry_after (float | None): Seconds to wait before retrying, when
+                the server provided a ``Retry-After`` header.
+        """
+        super().__init__(
+            message,
+            status_code=status_code,
+            suggestion=suggestion,
+            details=details,
+        )
+        self.retry_after = retry_after
+
+
 class QueryError(RagnerockError):
     """Raised when an annotation SQL query fails.
 
@@ -196,19 +233,27 @@ def _parse_detail(
     return message, suggestion, details, error_code
 
 
-def raise_for_status(status_code: int, response_text: str) -> None:
+def raise_for_status(
+    status_code: int,
+    response_text: str,
+    *,
+    retry_after: float | None = None,
+) -> None:
     """Raise the most specific SDK exception for an HTTP error response.
 
     No-ops for 2xx/3xx statuses. For 4xx/5xx, parses the body and picks the
     subclass that best describes the failure: ``QueryError`` when the server
     returned a query-engine error code, ``AuthenticationError`` for 401/403,
-    ``NotFoundError`` for 404, ``ValidationError`` for 422, and the base
-    ``RagnerockError`` for everything else.
+    ``NotFoundError`` for 404, ``ValidationError`` for 422,
+    ``RateLimitError`` for 429, and the base ``RagnerockError`` for everything
+    else.
 
     Args:
         status_code (int): HTTP status code from the response.
         response_text (str): Raw response body, used to extract error
             details.
+        retry_after (float | None): Parsed ``Retry-After`` value, attached
+            to ``RateLimitError`` when ``status_code`` is 429.
 
     Raises:
         RagnerockError: Or a subclass matching ``status_code``.
@@ -247,6 +292,14 @@ def raise_for_status(status_code: int, response_text: str) -> None:
             status_code=status_code,
             suggestion=suggestion,
             details=details,
+        )
+    if status_code == 429:
+        raise RateLimitError(
+            message,
+            status_code=status_code,
+            suggestion=suggestion,
+            details=details,
+            retry_after=retry_after,
         )
 
     raise RagnerockError(
