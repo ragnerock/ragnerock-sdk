@@ -42,4 +42,5 @@ jobs:
           RAGNEROCK_IS_CI: 'true'
           RAGNEROCK_ITEST_PAGINATION: '1'
           RAGNEROCK_ITEST_RUN_WORKFLOWS: '1'
+          RAGNEROCK_CONNECTION_STRING: 'ragnerock://api-dev.ragnerock.com/Test'
           RAGNEROCK_API_TOKEN: "${{ secrets.RAGNEROCK_API_TOKEN }}"
