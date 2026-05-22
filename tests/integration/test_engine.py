@@ -1,7 +1,6 @@
 """Engine / Session / auth flows against a live Ragnerock instance.
 
 Covers:
-    - connection-string parsing (pure, no network)
     - engine construction is lazy (doesn't authenticate up front)
     - live login + project resolution
     - typed errors for bad credentials and unknown projects
@@ -10,6 +9,7 @@ Covers:
 
 from __future__ import annotations
 
+from unittest.mock import patch
 from urllib.parse import urlparse
 
 import pytest
@@ -23,60 +23,14 @@ from ragnerock import (
 )
 
 
-class TestConnectionString:
-    """`create_engine` parses a ragnerock:// URL. These checks don't touch the network."""
-
-    def test_parses_valid_https_string(self):
-        engine = create_engine(
-            "ragnerock://alice@example.com:hunter2@api.ragnerock.com/demo"
-        )
-        assert engine.host == "https://api.ragnerock.com"
-        assert engine.project_name == "demo"
-
-    def test_localhost_uses_http(self):
-        engine = create_engine("ragnerock://u@e.com:p@localhost:8000/demo")
-        assert engine.host == "http://localhost:8000"
-
-    def test_127_0_0_1_uses_http(self):
-        engine = create_engine("ragnerock://u@e.com:p@127.0.0.1:8000/demo")
-        assert engine.host == "http://127.0.0.1:8000"
-
-    def test_custom_port_preserved(self):
-        engine = create_engine("ragnerock://u@e.com:p@ragnerock.internal:8443/demo")
-        assert engine.host == "https://ragnerock.internal:8443"
-
-    def test_missing_scheme_raises(self):
-        with pytest.raises(ValueError):
-            create_engine("u@e.com:p@host/demo")
-
-    def test_wrong_scheme_raises(self):
-        with pytest.raises(ValueError):
-            create_engine("postgres://u:p@host/demo")
-
-    def test_missing_user_raises(self):
-        with pytest.raises(ValueError):
-            create_engine("ragnerock://:p@host/demo")
-
-    def test_missing_password_raises(self):
-        with pytest.raises(ValueError):
-            create_engine("ragnerock://u@e.com@host/demo")
-
-    def test_missing_host_raises(self):
-        with pytest.raises(ValueError):
-            create_engine("ragnerock://u@e.com:p@/demo")
-
-    def test_missing_project_raises(self):
-        with pytest.raises(ValueError):
-            create_engine("ragnerock://u@e.com:p@host/")
-
-
 class TestLazyConnect:
-    """Constructing an engine must not authenticate."""
+    """Constructing an engine must not issue any HTTP request."""
 
     def test_create_engine_does_not_authenticate(self, conn_str):
-        engine = create_engine(conn_str)
-        # Token only appears after a Session is opened.
-        assert not engine.client.auth_token
+        with patch("httpx.Client.request") as mock_request:
+            engine = create_engine(conn_str)
+            assert engine is not None
+        assert mock_request.call_count == 0
 
 
 class TestLiveConnection:
@@ -93,15 +47,37 @@ class TestLiveConnection:
 
 
 def _swap_conn_str(
-    conn_str: str, *, password: str | None = None, project: str | None = None
+    conn_str: str, *, credential: str | None = None, project: str | None = None
 ) -> str:
-    """Rebuild a connection string with one component replaced."""
+    """Rebuild a connection string with one component replaced.
+
+    Mode-aware:
+      - ``email:password@host`` — ``credential`` swaps the password.
+      - ``token:apitoken@host`` — ``credential`` swaps the API token.
+      - bare ``host`` (env-var token mode) — ``credential`` is injected as an
+        inline ``token:<credential>`` so the result is self-contained and
+        doesn't depend on the ambient ``RAGNEROCK_API_TOKEN``.
+    """
     parsed = urlparse(conn_str)
-    new_user = parsed.username or ""
-    new_pass = password if password is not None else (parsed.password or "")
-    netloc = f"{new_user}:{new_pass}@{parsed.hostname}"
-    if parsed.port is not None:
-        netloc = f"{netloc}:{parsed.port}"
+    hostname = parsed.hostname
+    if hostname is None:
+        raise ValueError("Cannot swap: connection string has no hostname")
+    port = f":{parsed.port}" if parsed.port is not None else ""
+
+    if credential is not None:
+        if parsed.username == "token":
+            user, pwd = "token", credential
+        elif parsed.username:
+            user, pwd = parsed.username, credential
+        else:
+            user, pwd = "token", credential
+        netloc = f"{user}:{pwd}@{hostname}{port}"
+    elif parsed.username:
+        existing_pwd = parsed.password or ""
+        netloc = f"{parsed.username}:{existing_pwd}@{hostname}{port}"
+    else:
+        netloc = f"{hostname}{port}"
+
     new_project = project if project is not None else parsed.path.lstrip("/")
     return f"ragnerock://{netloc}/{new_project}"
 
@@ -110,7 +86,7 @@ class TestAuthFailures:
     """Failures at login / project resolution surface as typed errors."""
 
     def test_bad_credentials_raises_authentication_error(self, conn_str):
-        bad = _swap_conn_str(conn_str, password="definitely-not-the-password-xyz")
+        bad = _swap_conn_str(conn_str, credential="definitely-not-the-credential-xyz")
         engine = create_engine(bad)
         with pytest.raises(AuthenticationError) as exc_info:
             with Session(engine):

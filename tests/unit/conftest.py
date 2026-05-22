@@ -33,6 +33,17 @@ TEST_PASSWORD = "hunter2"
 TEST_PROJECT_NAME = "demo"
 TEST_PROJECT_ID = UUID("00000000-0000-0000-0000-000000000001")
 TEST_TOKEN = "test-access-token-xyz"
+TEST_API_TOKEN = "test-api-token-abc123"
+
+
+@pytest.fixture(autouse=True)
+def _clear_api_token_env(monkeypatch) -> None:
+    """Make tests deterministic by stripping ``RAGNEROCK_API_TOKEN`` from env.
+
+    Individual tests that need the env var set should re-set it via
+    ``monkeypatch.setenv`` after this autouse fixture runs.
+    """
+    monkeypatch.delenv("RAGNEROCK_API_TOKEN", raising=False)
 
 
 @pytest.fixture
@@ -47,19 +58,23 @@ def conn_str() -> str:
 
 
 @pytest.fixture
+def conn_str_token() -> str:
+    host = TEST_HOST.removeprefix("https://")
+    return f"ragnerock://token:{TEST_API_TOKEN}@{host}/{TEST_PROJECT_NAME}"
+
+
+@pytest.fixture
 def project_id() -> UUID:
     return TEST_PROJECT_ID
 
 
 @pytest.fixture
-def mock_login(httpx_mock):
-    """Stub auth + project-name lookup so ``Session.__enter__`` succeeds."""
-    httpx_mock.add_response(
-        method="POST",
-        url=f"{TEST_HOST}/api/auth/login",
-        json={"access_token": TEST_TOKEN, "token_type": "bearer"},
-        is_reusable=True,
-    )
+def mock_project_lookup(httpx_mock):
+    """Stub the project-name lookup so ``Session.__enter__`` succeeds.
+
+    Does NOT register a ``POST /api/auth/login`` mock — used by token-path
+    tests, where a stray login call would be a bug.
+    """
     httpx_mock.add_response(
         method="GET",
         url=f"{TEST_HOST}/api/projects/name/{TEST_PROJECT_NAME}",
@@ -76,6 +91,17 @@ def mock_login(httpx_mock):
             "skip": 0,
             "limit": 100,
         },
+        is_reusable=True,
+    )
+
+
+@pytest.fixture
+def mock_login(httpx_mock, mock_project_lookup):
+    """Stub auth + project-name lookup so ``Session.__enter__`` succeeds."""
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{TEST_HOST}/api/auth/login",
+        json={"access_token": TEST_TOKEN, "token_type": "bearer"},
         is_reusable=True,
     )
 

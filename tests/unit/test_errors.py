@@ -13,6 +13,7 @@ from ragnerock import (
     NotFoundError,
     QueryError,
     RagnerockError,
+    RateLimitError,
     ValidationError,
 )
 from ragnerock.errors import raise_for_status
@@ -23,7 +24,14 @@ class TestHierarchy:
 
     @pytest.mark.parametrize(
         "cls",
-        [AuthenticationError, NotFoundError, ValidationError, QueryError, CommitError],
+        [
+            AuthenticationError,
+            NotFoundError,
+            ValidationError,
+            QueryError,
+            CommitError,
+            RateLimitError,
+        ],
     )
     def test_all_errors_subclass_base(self, cls):
         assert issubclass(cls, RagnerockError)
@@ -66,6 +74,21 @@ class TestRaiseForStatus:
     def test_422_maps_to_validation(self):
         with pytest.raises(ValidationError):
             raise_for_status(422, '{"detail": {"message": "bad field"}}')
+
+    def test_429_maps_to_rate_limit(self):
+        with pytest.raises(RateLimitError) as exc:
+            raise_for_status(429, '{"detail": {"message": "slow down"}}')
+        assert exc.value.status_code == 429
+        assert exc.value.retry_after is None
+
+    def test_429_carries_retry_after(self):
+        with pytest.raises(RateLimitError) as exc:
+            raise_for_status(
+                429,
+                '{"detail": {"message": "slow down"}}',
+                retry_after=12.5,
+            )
+        assert exc.value.retry_after == 12.5
 
     def test_error_code_overrides_status_mapping(self):
         """When the body includes ``error_code``, a QueryError is preferred."""
@@ -143,6 +166,102 @@ class TestStatusMappingOverHttp:
             session.get(Document, id="00000000-0000-0000-0000-000000000101")
         assert exc.value.suggestion == "retry with a name"
         assert exc.value.details == {"field": "name"}
+
+
+class TestRateLimitRetries:
+    """``_request`` transparently retries 429 responses before raising."""
+
+    def test_succeeds_after_429_retry(self, httpx_mock, session, payloads, monkeypatch):
+        sleeps: list[float] = []
+        monkeypatch.setattr("ragnerock.client.time.sleep", sleeps.append)
+
+        doc_id = "00000000-0000-0000-0000-000000000101"
+        url = re.compile(rf".*/api/documents/{doc_id}$")
+        httpx_mock.add_response(
+            method="GET",
+            url=url,
+            status_code=429,
+            headers={"Retry-After": "2"},
+            json={"detail": {"message": "slow down"}},
+        )
+        httpx_mock.add_response(
+            method="GET",
+            url=url,
+            json=payloads.document(id=doc_id, name="contract.pdf"),
+        )
+
+        doc = session.get(Document, id=doc_id)
+        assert doc is not None
+        assert doc.name == "contract.pdf"
+        assert sleeps == [2.0]
+
+    def test_raises_rate_limit_when_retries_exhausted(
+        self, httpx_mock, session, monkeypatch, engine
+    ):
+        monkeypatch.setattr("ragnerock.client.time.sleep", lambda _s: None)
+        # Tighten the budget so the test doesn't have to queue many responses.
+        engine.client._max_rate_limit_retries = 2
+
+        doc_id = "00000000-0000-0000-0000-000000000101"
+        url = re.compile(rf".*/api/documents/{doc_id}$")
+        for _ in range(3):  # 1 initial + 2 retries
+            httpx_mock.add_response(
+                method="GET",
+                url=url,
+                status_code=429,
+                headers={"Retry-After": "1"},
+                json={"detail": {"message": "slow down"}},
+            )
+
+        with pytest.raises(RateLimitError) as exc:
+            session.get(Document, id=doc_id)
+        assert exc.value.retry_after == 1.0
+
+    def test_backoff_doubles_when_retry_after_absent(
+        self, httpx_mock, session, payloads, monkeypatch, engine
+    ):
+        sleeps: list[float] = []
+        monkeypatch.setattr("ragnerock.client.time.sleep", sleeps.append)
+        engine.client._rate_limit_backoff = 1.0
+
+        doc_id = "00000000-0000-0000-0000-000000000101"
+        url = re.compile(rf".*/api/documents/{doc_id}$")
+        for _ in range(3):
+            httpx_mock.add_response(
+                method="GET",
+                url=url,
+                status_code=429,
+                json={"detail": {"message": "slow down"}},
+            )
+        httpx_mock.add_response(
+            method="GET",
+            url=url,
+            json=payloads.document(id=doc_id, name="contract.pdf"),
+        )
+
+        doc = session.get(Document, id=doc_id)
+        assert doc is not None
+        # 1s, 2s, 4s — exponential, capped at 60s.
+        assert sleeps == [1.0, 2.0, 4.0]
+
+    def test_retries_disabled_surfaces_immediately(
+        self, httpx_mock, session, monkeypatch, engine
+    ):
+        monkeypatch.setattr("ragnerock.client.time.sleep", lambda _s: None)
+        engine.client._max_rate_limit_retries = 0
+
+        doc_id = "00000000-0000-0000-0000-000000000101"
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(rf".*/api/documents/{doc_id}$"),
+            status_code=429,
+            headers={"Retry-After": "5"},
+            json={"detail": {"message": "slow down"}},
+        )
+
+        with pytest.raises(RateLimitError) as exc:
+            session.get(Document, id=doc_id)
+        assert exc.value.retry_after == 5.0
 
 
 class TestCommitError:

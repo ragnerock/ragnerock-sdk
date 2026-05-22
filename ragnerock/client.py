@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import email.utils
 import json
+import time
 from typing import Any
 from uuid import UUID
 
@@ -232,6 +234,37 @@ def _drop_none(data: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in data.items() if v is not None}
 
 
+def _parse_retry_after(value: str | None) -> float | None:
+    """Parse a ``Retry-After`` header value into seconds.
+
+    RFC 7231 allows either a non-negative integer (delta-seconds) or an
+    HTTP-date. Returns ``None`` if the header is absent, unparseable, or
+    negative.
+
+    Args:
+        value (str | None): Raw header value, or ``None``.
+
+    Returns:
+        float | None: Seconds to wait, clamped at zero on the low end.
+    """
+    if value is None:
+        return None
+    s = value.strip()
+    if not s:
+        return None
+    try:
+        seconds = float(s)
+    except ValueError:
+        seconds = None
+    if seconds is not None:
+        return max(0.0, seconds)
+    parsed = email.utils.parsedate_to_datetime(s)
+    if parsed is None:
+        return None
+    delta = parsed.timestamp() - time.time()
+    return max(0.0, delta)
+
+
 def _stringify_uuids(data: dict[str, Any]) -> dict[str, Any]:
     """Coerce any UUID values (including those inside lists) to strings.
 
@@ -256,6 +289,11 @@ def _stringify_uuids(data: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+_DEFAULT_MAX_RATE_LIMIT_RETRIES = 5
+_DEFAULT_RATE_LIMIT_BACKOFF = 1.0
+_MAX_RATE_LIMIT_BACKOFF = 60.0
+
+
 class RagnerockClient:
     """Low-level HTTP client for the Ragnerock API.
 
@@ -264,9 +302,22 @@ class RagnerockClient:
         auth_token (str | None): Optional pre-existing bearer token. If
             ``None``, the caller must log in via ``client.auth.login(...)``
             before calling protected endpoints.
+        max_rate_limit_retries (int): How many times to retry a request that
+            comes back ``429 Too Many Requests`` before surfacing
+            :class:`~ragnerock.errors.RateLimitError`. ``0`` disables retries.
+        rate_limit_backoff (float): Base seconds to wait between rate-limit
+            retries when the server omits ``Retry-After``. Doubles on each
+            attempt, capped at 60s.
     """
 
-    def __init__(self, *, host: str, auth_token: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        host: str,
+        auth_token: str | None = None,
+        max_rate_limit_retries: int = _DEFAULT_MAX_RATE_LIMIT_RETRIES,
+        rate_limit_backoff: float = _DEFAULT_RATE_LIMIT_BACKOFF,
+    ) -> None:
         """Build a client bound to ``host``.
 
         Args:
@@ -275,10 +326,17 @@ class RagnerockClient:
                 it's set as the ``Authorization`` header immediately;
                 otherwise the caller must call ``client.auth.login(...)``
                 before any protected endpoint.
+            max_rate_limit_retries (int): How many extra attempts to make on a
+                429 response before raising. Defaults to 5.
+            rate_limit_backoff (float): Initial backoff in seconds used when
+                the server's ``Retry-After`` header is absent. Each retry
+                doubles the wait, capped at 60s.
         """
         self._host = host.rstrip("/")
         self._auth_token = auth_token
         self._client = httpx.Client(base_url=self._host, timeout=30.0)
+        self._max_rate_limit_retries = max_rate_limit_retries
+        self._rate_limit_backoff = rate_limit_backoff
         if auth_token is not None:
             self._client.headers["Authorization"] = f"Bearer {auth_token}"
 
@@ -325,6 +383,13 @@ class RagnerockClient:
         :class:`~ragnerock.errors.RagnerockError` subclass via
         :func:`~ragnerock.errors.raise_for_status`.
 
+        On ``429 Too Many Requests`` the call is automatically retried up to
+        ``max_rate_limit_retries`` times. Each retry sleeps for the duration
+        given by the server's ``Retry-After`` header when present, falling
+        back to exponential backoff (``rate_limit_backoff`` doubled per
+        attempt, capped at 60s). Only when the budget is exhausted does the
+        429 surface as :class:`~ragnerock.errors.RateLimitError`.
+
         Args:
             method (str): HTTP verb (``GET``, ``POST``, ``PUT``, ``DELETE``).
             path (str): Path relative to the client's base URL.
@@ -352,9 +417,33 @@ class RagnerockClient:
             kwargs["data"] = _drop_none(data)
         if files is not None:
             kwargs["files"] = files
-        response = self._client.request(method, path, **kwargs)
+
+        attempt = 0
+        while True:
+            response = self._client.request(method, path, **kwargs)
+            if response.status_code != 429 or attempt >= self._max_rate_limit_retries:
+                break
+            retry_after = _parse_retry_after(response.headers.get("Retry-After"))
+            wait = (
+                retry_after
+                if retry_after is not None
+                else min(
+                    self._rate_limit_backoff * (2**attempt),
+                    _MAX_RATE_LIMIT_BACKOFF,
+                )
+            )
+            time.sleep(wait)
+            attempt += 1
+
         if response.status_code >= 400:
-            raise_for_status(response.status_code, response.text)
+            retry_after = (
+                _parse_retry_after(response.headers.get("Retry-After"))
+                if response.status_code == 429
+                else None
+            )
+            raise_for_status(
+                response.status_code, response.text, retry_after=retry_after
+            )
         return response
 
     def close(self) -> None:

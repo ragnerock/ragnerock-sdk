@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 import pytest
 
 from ragnerock import AuthenticationError, NotFoundError, Session, create_engine
@@ -129,3 +131,103 @@ class TestAuthHeaderPropagation:
         assert (
             requests[0].headers.get("authorization") == "Bearer test-access-token-xyz"
         )
+
+
+class TestApiToken:
+    """API-token authentication via DSN sentinel-username or env-var fallback."""
+
+    def test_token_dsn_parses_and_attaches_to_client(self, conn_str_token):
+        engine = create_engine(conn_str_token)
+        assert engine._client.auth_token == "test-api-token-abc123"
+        assert engine._email is None
+        assert engine._password is None
+
+    def test_token_dsn_skips_login(
+        self, httpx_mock, mock_project_lookup, conn_str_token, base_url
+    ):
+        engine = create_engine(conn_str_token)
+        with Session(engine):
+            pass
+
+        paths = [r.url.path for r in httpx_mock.get_requests()]
+        assert "/api/auth/login" not in paths
+        project_calls = [
+            r
+            for r in httpx_mock.get_requests()
+            if r.url.path == f"/api/projects/name/{'demo'}"
+        ]
+        assert project_calls
+        assert (
+            project_calls[0].headers.get("authorization")
+            == "Bearer test-api-token-abc123"
+        )
+
+    def test_token_from_env_var(
+        self, httpx_mock, mock_project_lookup, base_url, monkeypatch
+    ):
+        monkeypatch.setenv("RAGNEROCK_API_TOKEN", "envtok")
+        host = base_url.removeprefix("https://")
+        engine = create_engine(f"ragnerock://{host}/demo")
+        assert engine._client.auth_token == "envtok"
+        with Session(engine):
+            pass
+        paths = [r.url.path for r in httpx_mock.get_requests()]
+        assert "/api/auth/login" not in paths
+
+    def test_dsn_token_wins_over_env_token(self, conn_str_token, monkeypatch):
+        monkeypatch.setenv("RAGNEROCK_API_TOKEN", "envtok-should-be-ignored")
+        engine = create_engine(conn_str_token)
+        assert engine._client.auth_token == "test-api-token-abc123"
+
+    def test_dsn_email_password_plus_env_token_raises(self, conn_str, monkeypatch):
+        monkeypatch.setenv("RAGNEROCK_API_TOKEN", "envtok")
+        with pytest.raises(ValueError, match="Conflicting credentials"):
+            create_engine(conn_str)
+
+    def test_empty_token_in_dsn_raises(self, base_url):
+        host = base_url.removeprefix("https://")
+        with pytest.raises(ValueError, match="empty API token"):
+            create_engine(f"ragnerock://token:@{host}/demo")
+
+    def test_no_auth_anywhere_raises(self, base_url):
+        host = base_url.removeprefix("https://")
+        with pytest.raises(ValueError, match="no authentication supplied"):
+            create_engine(f"ragnerock://{host}/demo")
+
+    def test_token_with_special_chars_percent_encoded(
+        self, base_url, mock_project_lookup, httpx_mock
+    ):
+        raw_token = "a+b/c=d"
+        encoded = quote(raw_token, safe="")
+        host = base_url.removeprefix("https://")
+        engine = create_engine(f"ragnerock://token:{encoded}@{host}/demo")
+        assert engine._client.auth_token == raw_token
+
+    def test_whitespace_in_env_token_stripped(
+        self, base_url, monkeypatch, mock_project_lookup
+    ):
+        monkeypatch.setenv("RAGNEROCK_API_TOKEN", "  envtok  \n")
+        host = base_url.removeprefix("https://")
+        engine = create_engine(f"ragnerock://{host}/demo")
+        assert engine._client.auth_token == "envtok"
+
+    def test_empty_env_token_treated_as_absent(self, conn_str, monkeypatch):
+        monkeypatch.setenv("RAGNEROCK_API_TOKEN", "   ")
+        engine = create_engine(conn_str)
+        assert engine._email == "alice@example.com"
+        assert engine._auth_token is None
+
+    def test_bad_token_surfaces_as_authentication_error(
+        self, httpx_mock, conn_str_token, base_url
+    ):
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{base_url}/api/projects/name/demo",
+            status_code=401,
+            json={"detail": {"message": "invalid token"}},
+        )
+        engine = create_engine(conn_str_token)
+        with pytest.raises(AuthenticationError) as exc_info:
+            with Session(engine):
+                pass
+        assert exc_info.value.status_code == 401

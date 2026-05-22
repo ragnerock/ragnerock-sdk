@@ -9,6 +9,7 @@ from ragnerock.errors import (
     NotFoundError,
     QueryError,
     RagnerockError,
+    RateLimitError,
     ValidationError,
 )
 from ragnerock.iterator import PaginatedIterator
@@ -57,6 +58,7 @@ __all__ = [
     "QueryError",
     "QueryResult",
     "RagnerockError",
+    "RateLimitError",
     "Session",
     "ValidationError",
     "Workflow",
