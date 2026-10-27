@@ -36,17 +36,6 @@ def test_unknown_kind_raises_with_suggestion() -> None:
     assert "Document" in str(excinfo.value)
 
 
-def test_all_kinds_covers_every_writable_resource() -> None:
-    writable = {s.kind for s in all_kinds() if s.writable}
-    assert writable == {
-        "Document",
-        "DocumentGroup",
-        "Operator",
-        "Workflow",
-        "Annotation",
-    }
-
-
-def test_read_only_kinds_are_not_writable() -> None:
-    read_only = {s.kind for s in all_kinds() if not s.writable}
-    assert read_only == {"Chunk", "Page", "Job"}
+def test_name_deletable_kinds() -> None:
+    deletable = {s.kind for s in all_kinds() if s.deletable}
+    assert deletable == {"Document", "DocumentGroup", "Operator", "Workflow"}

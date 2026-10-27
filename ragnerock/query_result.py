@@ -23,6 +23,10 @@ class QueryResult:
         row_count (int): Number of rows returned.
         query_time_ms (int | None): Server-reported execution time in
             milliseconds, if available.
+        truncated (bool): ``True`` when the server stopped at the row
+            ``limit`` and more rows matched.
+        provenance (Any): Per-row source references (document, chunk, or
+            annotation ids), when the query asked for them.
 
     Example::
 
@@ -39,6 +43,8 @@ class QueryResult:
         data: list[dict[str, Any]],
         row_count: int,
         query_time_ms: int | None = None,
+        truncated: bool = False,
+        provenance: Any = None,
     ) -> None:
         """Initialize a query result.
 
@@ -49,11 +55,15 @@ class QueryResult:
             row_count (int): Number of rows in ``data``.
             query_time_ms (int | None): Server-reported execution time in
                 milliseconds, if the server included it.
+            truncated (bool): Whether more rows matched than were returned.
+            provenance (Any): Per-row source references, if requested.
         """
         self.columns = columns
         self.data = data
         self.row_count = row_count
         self.query_time_ms = query_time_ms
+        self.truncated = truncated
+        self.provenance = provenance
 
     def to_dict(self) -> list[dict[str, Any]]:
         """Return the rows as a list of column-keyed dicts.
@@ -102,10 +112,12 @@ class QueryResult:
         repr that dumps them makes logs and tracebacks unreadable.
 
         Returns:
-            str: A short summary: columns, row count, and query time.
+            str: A short summary: columns, row count, and (when known) query
+            time and truncation.
         """
-        return (
-            f"QueryResult(columns={self.columns!r}, "
-            f"row_count={self.row_count}, "
-            f"query_time_ms={self.query_time_ms})"
-        )
+        parts = [f"columns={self.columns!r}", f"row_count={self.row_count}"]
+        if self.query_time_ms is not None:
+            parts.append(f"query_time_ms={self.query_time_ms}")
+        if self.truncated:
+            parts.append("truncated=True")
+        return f"QueryResult({', '.join(parts)})"

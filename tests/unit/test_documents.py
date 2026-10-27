@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import json
 import re
+from datetime import UTC, datetime
 
 import pytest
 
-from ragnerock import Document, FileType, NotFoundError, ValidationError
+from ragnerock import (
+    Document,
+    DocumentStatus,
+    FileType,
+    NotFoundError,
+    ValidationError,
+)
 
 
 class TestGet:
@@ -45,6 +53,20 @@ class TestGet:
         )
         doc = session.get(Document, id="00000000-0000-0000-0000-000000000999")
         assert doc is None
+
+
+class TestWireFields:
+    def test_status_and_timestamps_parse(self, httpx_mock, session, payloads):
+        doc_id = "00000000-0000-0000-0000-000000000101"
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(rf".*/api/documents/{doc_id}$"),
+            json=payloads.document(id=doc_id, status="processing"),
+        )
+        doc = session.get(Document, id=doc_id)
+        assert doc is not None
+        assert doc.status == DocumentStatus.PROCESSING
+        assert doc.created_at == datetime(2026, 4, 16, 12, tzinfo=UTC)
 
 
 class TestList:
@@ -113,6 +135,21 @@ class TestUpdate:
         session.commit()
         assert doc.name == "renamed.pdf"
 
+    def test_update_sends_metadata_as_json_string(
+        self, httpx_mock, session, payloads, base_url
+    ):
+        doc_id = "00000000-0000-0000-0000-000000000101"
+        httpx_mock.add_response(
+            method="PUT",
+            url=f"{base_url}/api/documents/{doc_id}",
+            json=payloads.document(id=doc_id),
+        )
+        doc = Document(id=doc_id, name="sample.pdf", metadata={"region": "emea"})
+        session.update(doc)
+        session.commit()
+        body = json.loads(httpx_mock.get_requests()[-1].content)
+        assert body["metadata"] == '{"region": "emea"}'
+
     def test_update_404_wraps_not_found_in_commit_error(
         self, httpx_mock, session, payloads, base_url
     ):
@@ -180,3 +217,22 @@ class TestContentDownload:
         session._bind(doc)
         with pytest.raises(RuntimeError):
             doc.content()
+
+
+class TestDocumentJob:
+    def test_job_fetches_latest_job(self, httpx_mock, session, payloads, base_url):
+        doc_id = "00000000-0000-0000-0000-000000000101"
+        httpx_mock.add_response(
+            method="GET",
+            url=f"{base_url}/api/documents/{doc_id}/job",
+            json=payloads.job(document_id=doc_id, phase="embedding"),
+        )
+        doc = Document(id=doc_id)
+        session._bind(doc)
+        job = doc.job()
+        assert job.phase == "embedding"
+        assert job._is_bound
+
+    def test_job_on_unbound_document_raises(self):
+        with pytest.raises(RuntimeError):
+            Document(id="00000000-0000-0000-0000-000000000101").job()

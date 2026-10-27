@@ -7,9 +7,14 @@ need a running Ragnerock server.
 
 from __future__ import annotations
 
+import base64
+from collections.abc import Callable
 from uuid import UUID
 
 import pytest
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 def pytest_collection_modifyitems(config, items):
@@ -145,7 +150,8 @@ class _Payloads:
             "created_at": "2026-04-16T12:00:00Z",
             "updated_at": "2026-04-16T12:00:00Z",
             "created_by_id": "00000000-0000-0000-0000-0000000000aa",
-            "metadata": None,
+            "status": "ready",
+            "is_sample": False,
         }
         base.update(overrides)
         return base
@@ -165,11 +171,11 @@ class _Payloads:
             "id": "00000000-0000-0000-0000-000000000301",
             "document_id": "00000000-0000-0000-0000-000000000101",
             "content": "Hello world.",
-            "start_index": 0,
-            "end_index": 12,
-            "chunk_type": 4,
-            "metadata": None,
-            "created_at": "2026-04-16T12:00:00Z",
+            "document_offset": 0,
+            "chunk_type": 2,
+            "start_char_idx": 0,
+            "end_char_idx": 12,
+            "page_id": None,
         }
         base.update(overrides)
         return base
@@ -180,7 +186,7 @@ class _Payloads:
             "document_id": "00000000-0000-0000-0000-000000000101",
             "page_number": 1,
             "content": "Page one text",
-            "metadata": None,
+            "created_at": "2026-04-16T12:00:00Z",
         }
         base.update(overrides)
         return base
@@ -213,10 +219,12 @@ class _Payloads:
                 "properties": {"total": {"type": "number"}},
             },
             "generation_prompt": "Extract the total.",
-            "chunk_type": 1,
+            "chunk_type": 0,
             "batch_size": None,
             "multi_annotation": False,
+            "operator_kind": "LLM",
             "created_at": "2026-04-16T12:00:00Z",
+            "updated_at": "2026-04-16T12:00:00Z",
         }
         base.update(overrides)
         return base
@@ -231,7 +239,7 @@ class _Payloads:
             "created_at": "2026-04-16T12:00:00Z",
             "updated_at": "2026-04-16T12:00:00Z",
             "is_active": True,
-            "auto_run_on_upload": True,
+            "auto_run_on_upload": False,
             "execution_order": [],
             "nodes": [],
         }
@@ -246,8 +254,31 @@ class _Payloads:
             "operator_name": "invoice_extract",
             "condition": None,
             "persist": True,
-            "on_error": "FAIL_JOB",
+            "on_error": "SKIP_NODE",
             "max_retries": 0,
+            "annotations_only": False,
+            "in_nodes": [],
+            "out_nodes": [],
+        }
+        base.update(overrides)
+        return base
+
+    def workflow_node_info(self, **overrides):
+        """A node as embedded in a workflow payload (no ``workflow_id``)."""
+        base = {
+            "id": "00000000-0000-0000-0000-000000000702",
+            "operator_id": "00000000-0000-0000-0000-000000000601",
+            "operator_name": "invoice_extract",
+            "operator_jsonschema": {},
+            "operator_chunk_type": 0,
+            "condition": None,
+            "persist": True,
+            "on_error": "SKIP_NODE",
+            "annotations_only": False,
+            "condition_mode": None,
+            "position_x": None,
+            "position_y": None,
+            "position_z": None,
             "in_nodes": [],
             "out_nodes": [],
         }
@@ -292,3 +323,45 @@ class _Payloads:
         }
         base.update(overrides)
         return base
+
+
+# -- GitOps sealing ---------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def sealing_key() -> rsa.RSAPrivateKey:
+    """An RSA key pair standing in for the instance's sealing key."""
+    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+@pytest.fixture(scope="session")
+def sealing_pem(sealing_key: rsa.RSAPrivateKey) -> str:
+    """The sealing key's public half, PEM-encoded."""
+    return (
+        sealing_key.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode()
+    )
+
+
+@pytest.fixture(scope="session")
+def unseal(sealing_key: rsa.RSAPrivateKey) -> Callable[[str], str]:
+    """Open a sealed value the way the server does."""
+
+    def _unseal(blob: str) -> str:
+        prefix, version, encoded_dek, token = blob.split(".", 3)
+        assert (prefix, version) == ("rgnk-sealed", "v1")
+        dek = sealing_key.decrypt(
+            base64.urlsafe_b64decode(encoded_dek),
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None,
+            ),
+        )
+        return Fernet(dek).decrypt(token.encode()).decode()
+
+    return _unseal

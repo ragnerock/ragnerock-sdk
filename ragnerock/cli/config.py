@@ -8,6 +8,9 @@ Two supported forms, tried in this order:
    ``RAGNEROCK_PASSWORD`` (email/password mode).
 
 If neither form is complete, :func:`build_engine` raises :class:`ConfigError`.
+
+:func:`build_client` reads the same variables but does not require a project,
+for account-level commands such as ``ragnerock apply``.
 """
 
 from __future__ import annotations
@@ -15,7 +18,8 @@ from __future__ import annotations
 import os
 from urllib.parse import quote, urlparse
 
-from ragnerock.engine import Engine, create_engine
+from ragnerock.client import RagnerockClient
+from ragnerock.engine import Engine, create_client, create_engine
 
 CONNECTION_STRING_VAR = "RAGNEROCK_CONNECTION_STRING"
 HOST_VAR = "RAGNEROCK_HOST"
@@ -23,6 +27,7 @@ EMAIL_VAR = "RAGNEROCK_EMAIL"
 PASSWORD_VAR = "RAGNEROCK_PASSWORD"
 PROJECT_VAR = "RAGNEROCK_PROJECT"
 API_TOKEN_VAR = "RAGNEROCK_API_TOKEN"
+SEALING_PUBLIC_KEY_VAR = "RAGNEROCK_SEALING_PUBLIC_KEY"
 
 
 class ConfigError(Exception):
@@ -73,12 +78,67 @@ def build_engine(env: dict[str, str] | None = None) -> Engine:
         raise ConfigError(f"Invalid configuration from split vars: {e}") from e
 
 
+def build_client(env: dict[str, str] | None = None) -> RagnerockClient:
+    """Create an authenticated :class:`RagnerockClient` from environment variables.
+
+    Like :func:`build_engine`, but ``RAGNEROCK_PROJECT`` (and the project path
+    of ``RAGNEROCK_CONNECTION_STRING``) is optional. With email/password
+    credentials this logs in immediately.
+
+    Args:
+        env (dict[str, str] | None): Optional override for the environment
+            (primarily for tests). Defaults to :data:`os.environ`.
+
+    Returns:
+        RagnerockClient: A client with its bearer token set.
+
+    Raises:
+        ConfigError: If no configuration form is complete, or the connection
+            string is malformed.
+        AuthenticationError: If an email/password login is rejected.
+    """
+    source = env if env is not None else os.environ
+
+    conn = source.get(CONNECTION_STRING_VAR)
+    if conn:
+        try:
+            return create_client(conn)
+        except ValueError as e:
+            raise ConfigError(f"{CONNECTION_STRING_VAR} is malformed: {e}") from e
+
+    host = source.get(HOST_VAR)
+    project = source.get(PROJECT_VAR) or None
+    email = source.get(EMAIL_VAR)
+    password = source.get(PASSWORD_VAR)
+    token = (source.get(API_TOKEN_VAR) or "").strip() or None
+
+    if host and token:
+        conn = _assemble_connection_string(host, project, token=token)
+    elif host and email and password:
+        conn = _assemble_connection_string(
+            host, project, email=email, password=password
+        )
+    else:
+        raise ConfigError(
+            _missing_message(
+                host, project, email, password, token, require_project=False
+            )
+        )
+
+    try:
+        return create_client(conn)
+    except ValueError as e:
+        raise ConfigError(f"Invalid configuration from split vars: {e}") from e
+
+
 def _missing_message(
     host: str | None,
     project: str | None,
     email: str | None,
     password: str | None,
     token: str | None,
+    *,
+    require_project: bool = True,
 ) -> str:
     """Compose a configuration error listing what's missing.
 
@@ -89,16 +149,17 @@ def _missing_message(
     missing: list[str] = []
     if not host:
         missing.append(HOST_VAR)
-    if not project:
+    if require_project and not project:
         missing.append(PROJECT_VAR)
     if not token:
         if not email:
             missing.append(EMAIL_VAR)
         if not password:
             missing.append(PASSWORD_VAR)
+    required = f"{HOST_VAR} + {PROJECT_VAR}" if require_project else HOST_VAR
     return (
         "Missing Ragnerock configuration. Set "
-        f"{CONNECTION_STRING_VAR}, or {HOST_VAR} + {PROJECT_VAR} plus either "
+        f"{CONNECTION_STRING_VAR}, or {required} plus either "
         f"{API_TOKEN_VAR} or both ({EMAIL_VAR}, {PASSWORD_VAR}). "
         f"Missing: {', '.join(missing)}."
     )
@@ -106,7 +167,7 @@ def _missing_message(
 
 def _assemble_connection_string(
     host: str,
-    project: str,
+    project: str | None,
     *,
     email: str | None = None,
     password: str | None = None,
@@ -129,7 +190,7 @@ def _assemble_connection_string(
 
     Args:
         host (str): Hostname or full URL for the API.
-        project (str): Project name.
+        project (str | None): Project name, or ``None`` to omit the path.
         email (str | None): Account email (email/password mode).
         password (str | None): Account password (email/password mode).
         token (str | None): API token (token mode).
@@ -146,4 +207,5 @@ def _assemble_connection_string(
     else:
         userinfo = f"{email}:{password}"
 
-    return f"ragnerock://{userinfo}@{hostname}{port}/{project}"
+    path = f"/{project}" if project else ""
+    return f"ragnerock://{userinfo}@{hostname}{port}{path}"

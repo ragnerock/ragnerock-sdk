@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from ragnerock.engine import Engine, create_engine
+from ragnerock.engine import Engine, create_client, create_engine
 from ragnerock.errors import (
     AuthenticationError,
     CommitError,
+    GitOpsError,
     NotFoundError,
     QueryError,
     RagnerockError,
@@ -21,6 +22,7 @@ from ragnerock.resources import (
     ComparisonOp,
     Document,
     DocumentGroup,
+    DocumentStatus,
     FileType,
     Job,
     JobStatus,
@@ -28,9 +30,11 @@ from ragnerock.resources import (
     ListOp,
     LogicalOp,
     Operator,
+    OperatorKind,
     Page,
     Workflow,
     WorkflowNode,
+    WorkflowSchedule,
     compile_condition,
 )
 from ragnerock.session import Session
@@ -44,8 +48,10 @@ __all__ = [
     "ComparisonOp",
     "Document",
     "DocumentGroup",
+    "DocumentStatus",
     "Engine",
     "FileType",
+    "GitOpsError",
     "Job",
     "JobStatus",
     "JobType",
@@ -53,6 +59,7 @@ __all__ = [
     "LogicalOp",
     "NotFoundError",
     "Operator",
+    "OperatorKind",
     "Page",
     "PaginatedIterator",
     "QueryError",
@@ -63,6 +70,8 @@ __all__ = [
     "ValidationError",
     "Workflow",
     "WorkflowNode",
+    "WorkflowSchedule",
     "compile_condition",
+    "create_client",
     "create_engine",
 ]

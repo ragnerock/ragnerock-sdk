@@ -39,13 +39,13 @@ The email and password are URL-encoded and characters like `@`, `:`, `/`, and `#
 
 ## From environment
 
-The CLI's `build_engine` resolves an engine from these variables:
+The CLI resolves its connection from these variables:
 
 | Variable | Purpose |
 |---|---|
 | `RAGNEROCK_CONNECTION_STRING` | A full `ragnerock://...` DSN. Takes precedence over the split-var form. |
 | `RAGNEROCK_HOST` | Hostname or full URL of the API. |
-| `RAGNEROCK_PROJECT` | Project name. |
+| `RAGNEROCK_PROJECT` | Project name (not needed for `ragnerock apply`). |
 | `RAGNEROCK_API_TOKEN` | Pre-issued bearer token. Use this OR email/password. |
 | `RAGNEROCK_EMAIL` | Account email (email/password mode). |
 | `RAGNEROCK_PASSWORD` | Account password (email/password mode). |
@@ -53,6 +53,19 @@ The CLI's `build_engine` resolves an engine from these variables:
 When `RAGNEROCK_API_TOKEN` is set together with `RAGNEROCK_HOST` and `RAGNEROCK_PROJECT`, email and password are not required.
 
 In the event a token is not specified in the DSN (e.g. `ragnerock://token:...@host...`), then the SDK will fall back to pulling from the `RAGNEROCK_API_TOKEN` environment variable. In the event that both an API token and email/password are supplied, the SDK will raise a `ValueError` to indicate this.
+
+## Account-level client
+
+Some operations aren't scoped to a project — applying [GitOps manifests](gitops.md), or managing provider configs. {func}`~ragnerock.create_client` accepts the same connection strings with the project path optional, and returns an authenticated low-level {class}`~ragnerock.client.RagnerockClient`:
+
+```python
+from ragnerock import create_client
+
+client = create_client("ragnerock://token:rgnk_...@api.ragnerock.com")
+client.ai_configs.list()
+```
+
+Unlike `create_engine`, `create_client` logs in immediately when given an email and password. An engine's client is also available as `engine.client`.
 
 ## Lazy connection
 

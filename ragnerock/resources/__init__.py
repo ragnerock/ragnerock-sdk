@@ -11,11 +11,16 @@ from ragnerock.resources.condition import (
     LogicalOp,
     compile_condition,
 )
-from ragnerock.resources.document import Document, DocumentGroup, FileType
+from ragnerock.resources.document import (
+    Document,
+    DocumentGroup,
+    DocumentStatus,
+    FileType,
+)
 from ragnerock.resources.job import Job, JobStatus, JobType
-from ragnerock.resources.operator import Operator
+from ragnerock.resources.operator import Operator, OperatorKind
 from ragnerock.resources.page import Page
-from ragnerock.resources.workflow import Workflow, WorkflowNode
+from ragnerock.resources.workflow import Workflow, WorkflowNode, WorkflowSchedule
 
 __all__ = [
     "Annotation",
@@ -24,6 +29,7 @@ __all__ = [
     "ComparisonOp",
     "Document",
     "DocumentGroup",
+    "DocumentStatus",
     "FileType",
     "Job",
     "JobStatus",
@@ -31,9 +37,11 @@ __all__ = [
     "ListOp",
     "LogicalOp",
     "Operator",
+    "OperatorKind",
     "Page",
     "Workflow",
     "WorkflowNode",
+    "WorkflowSchedule",
     "_Resource",
     "compile_condition",
 ]

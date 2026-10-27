@@ -59,6 +59,15 @@ class Job(_Resource):
     n_pages: int | None = None
     n_mb: float | None = None
     phase: str | None = None
+    current_stage_index: int | None = None
+    total_stages: int | None = None
+    current_stage_name: str | None = None
+    current_stage_type: str | None = None
+    current_stage_subtasks_completed: int | None = None
+    current_stage_subtasks_total: int | None = None
+    workflow_ids: list[UUID] = []
+    archived_at: OptionalDateTime = None
+    live_assignments: int = 0
 
     def refresh(self) -> None:
         """Re-fetch this job from the server and overwrite fields in place.
@@ -102,12 +111,11 @@ class Job(_Resource):
             self.refresh()
 
     def cancel(self) -> None:
-        """Request server-side cancellation of this job.
+        """Request server-side cancellation of this job and refresh local state.
 
         The server transitions the job toward a terminal state; this method
-        updates local fields from the server's response (so ``status`` and
-        related fields reflect the post-cancel state). Already-terminal jobs
-        are left alone server-side.
+        then re-fetches the job so ``status`` and related fields reflect the
+        post-cancel state. Already-terminal jobs are left alone server-side.
 
         Raises:
             RuntimeError: If the job is not bound to a session, or has no
@@ -117,14 +125,14 @@ class Job(_Resource):
             raise RuntimeError("Job is not bound to a session; cannot cancel.")
         if self.id is None:
             raise RuntimeError("Job has no id; cannot cancel.")
-        response = self._session._engine.client.jobs.cancel(self.id)
-        self._update_from(response)
+        self._session._engine.client.jobs.cancel(self.id)
+        self.refresh()
 
     def retry(self) -> None:
         """Request a retry of this job and refresh local state.
 
-        Typically used on a failed job. The server resets execution state;
-        this method updates local fields from the response so ``status`` and
+        Typically used on a failed job. The server resets execution state and
+        re-queues the job; this method then re-fetches it so ``status`` and
         related fields reflect the post-retry state.
 
         Raises:
@@ -135,29 +143,5 @@ class Job(_Resource):
             raise RuntimeError("Job is not bound to a session; cannot retry.")
         if self.id is None:
             raise RuntimeError("Job has no id; cannot retry.")
-        response = self._session._engine.client.jobs.retry(self.id)
-        self._update_from(response)
-
-    def _update_from(self, response: Any) -> None:
-        """Copy recognized fields from a server response onto this job.
-
-        Accepts either a :class:`Job` instance (from ``model_dump()``) or a
-        plain dict. Unknown fields in ``response`` are ignored; fields absent
-        from ``response`` are left untouched on this instance. Silently
-        returns if ``response`` is ``None`` or an unsupported type so that
-        action endpoints returning minimal payloads stay non-destructive.
-
-        Args:
-            response (Any): The server response to merge into this instance.
-        """
-        if response is None:
-            return
-        if isinstance(response, Job):
-            data = response.model_dump()
-        elif isinstance(response, dict):
-            data = response
-        else:
-            return
-        for field_name in type(self).model_fields:
-            if field_name in data:
-                setattr(self, field_name, data[field_name])
+        self._session._engine.client.jobs.retry(self.id)
+        self.refresh()

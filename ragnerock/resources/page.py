@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
 from uuid import UUID
 
-from ragnerock.resources.base import _Resource
+from ragnerock.resources.base import OptionalDateTime, _Resource
 
 
 class Page(_Resource):
@@ -20,4 +19,4 @@ class Page(_Resource):
     document_id: UUID | None = None
     page_number: int | None = None
     content: str | None = None
-    metadata: dict[str, Any] | None = None
+    created_at: OptionalDateTime = None

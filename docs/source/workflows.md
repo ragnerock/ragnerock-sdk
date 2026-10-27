@@ -2,8 +2,9 @@
 
 Workflows are a DAG of operators which are designed to process the documents provided. These can be triggered in two ways:
 
-1. The workflow has `auto_run_on_upload` set to `True` and a document is uploaded to Ragnerock
+1. The workflow has `auto_run_on_upload` set to `True` (it defaults to `False`) and a document is uploaded to Ragnerock
 2. The workflow is manually triggered via `session.run(my_workflow, documents=[...])`
+3. The workflow has a schedule (see [Schedules, sinks, and change requests](#schedules-sinks-and-change-requests))
 
 Upon the successful execution of the workflow, a resulting [job](jobs.md) will be created
 
@@ -153,3 +154,26 @@ Every passed document must already be committed (have an `id`). Passing an unper
 Nodes wrap operators with per-step config: when to fire, whether to persist output, how to handle errors.
 
 Access via `wf.nodes`. Create them with `wf.add_node(operator=...)`, wire them with `>>`, update them through `session.update(node)`, and remove them with `session.delete(node)`.
+
+## Node options
+
+`add_node` accepts `persist` (store the node's annotations), `on_error` (`"SKIP_NODE"`, the default, or `"FAIL_JOB"`), `max_retries`, and `annotations_only`. Nodes loaded with a workflow (`session.get(Workflow, ...)`) are bound to the session and can be updated, deleted, or wired with `>>` directly.
+
+## Schedules, sinks, and change requests
+
+Workflow features beyond the node graph are available on the low-level client, `engine.client.workflows`:
+
+```python
+from ragnerock import WorkflowSchedule
+
+client = engine.client
+client.workflows.set_schedule(wf.id, WorkflowSchedule(cron="0 6 * * 1-5", timezone="America/New_York"))
+client.workflows.schedule_preview(cron="0 6 * * 1-5", timezone="America/New_York")
+client.workflows.clear_schedule(wf.id)
+
+# Change requests proposed by CHANGE_REQUEST agents
+for cr in client.workflows.change_requests.list(wf.id).items:
+    print(cr.id, cr.status, cr.document_count)
+```
+
+Saving a schedule authorizes recurring runs under your identity. For managing workflows as configuration — nodes, conditions, decorators, schedules, and sinks together — prefer [GitOps manifests](gitops.md). See [Platform APIs](platform.md) for the full client surface.

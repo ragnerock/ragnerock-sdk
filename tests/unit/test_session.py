@@ -98,7 +98,7 @@ class TestUpdateValidation:
             session.update(p)
 
     def test_update_chunk_raises(self, session):
-        c = Chunk(id="00000000-0000-0000-0000-000000000301", start_index=0, end_index=1)
+        c = Chunk(id="00000000-0000-0000-0000-000000000301", document_offset=0)
         with pytest.raises((TypeError, ValidationError)):
             session.update(c)
 

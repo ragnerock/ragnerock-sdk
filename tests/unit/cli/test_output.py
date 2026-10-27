@@ -8,7 +8,6 @@ from uuid import UUID
 
 import yaml
 
-from ragnerock.cli.manifest import _validate_doc
 from ragnerock.cli.output import OutputFormat, render
 from ragnerock.cli.resources import resolve_kind
 from ragnerock.resources import ChunkType, Operator
@@ -37,16 +36,15 @@ def test_json_output_is_valid_json_array() -> None:
     assert parsed[0]["name"] == "sentiment"
 
 
-def test_yaml_output_round_trips_into_manifest_loader() -> None:
+def test_yaml_output_is_a_plain_field_dump() -> None:
     spec = resolve_kind("operator")
     stream = io.StringIO()
     render([_sample_operator()], spec, OutputFormat.YAML, stream=stream)
-    raw = yaml.safe_load(stream.getvalue())
-
-    doc = _validate_doc(raw, "<roundtrip>", 0)
-    assert doc.spec_kind.kind == "Operator"
-    assert doc.name == "sentiment"
-    assert doc.spec["generation_prompt"] == "Classify..."
+    doc = yaml.safe_load(stream.getvalue())
+    assert "apiVersion" not in doc
+    assert doc["name"] == "sentiment"
+    assert doc["generation_prompt"] == "Classify..."
+    assert doc["operator_kind"] == "LLM"
 
 
 def test_yaml_multiple_items_emits_multi_doc() -> None:
@@ -57,28 +55,7 @@ def test_yaml_multiple_items_emits_multi_doc() -> None:
     stream = io.StringIO()
     render([a, b], spec, OutputFormat.YAML, stream=stream)
     docs = list(yaml.safe_load_all(stream.getvalue()))
-    assert len(docs) == 2
-    names = [d["metadata"]["name"] for d in docs]
-    assert names == ["sentiment", "other"]
-
-
-def test_yaml_output_emits_api_version_first() -> None:
-    spec = resolve_kind("operator")
-
-    single_stream = io.StringIO()
-    render([_sample_operator()], spec, OutputFormat.YAML, stream=single_stream)
-    single_doc = yaml.safe_load(single_stream.getvalue())
-    assert single_doc["apiVersion"] == "v1"
-    assert next(iter(single_doc)) == "apiVersion"
-
-    multi_stream = io.StringIO()
-    other = _sample_operator()
-    other.name = "other"
-    render([_sample_operator(), other], spec, OutputFormat.YAML, stream=multi_stream)
-    multi_docs = list(yaml.safe_load_all(multi_stream.getvalue()))
-    for doc in multi_docs:
-        assert doc["apiVersion"] == "v1"
-        assert next(iter(doc)) == "apiVersion"
+    assert [d["name"] for d in docs] == ["sentiment", "other"]
 
 
 def test_name_format_prints_one_per_line() -> None:

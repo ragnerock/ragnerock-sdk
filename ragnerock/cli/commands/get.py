@@ -11,11 +11,18 @@ from typing import Annotated
 
 import typer
 
+from pydantic import BaseModel
+
+from ragnerock.cli.errors import exit_code_for
 from ragnerock.cli.output import OutputFormat, render
-from ragnerock.cli.resources import KindSpec, UnknownKindError, resolve_kind
+from ragnerock.cli.resources import (
+    NAME_FIELDS,
+    KindSpec,
+    UnknownKindError,
+    resolve_kind,
+)
 from ragnerock.cli.session import open_session
 from ragnerock.resources import Annotation, Chunk, Page
-from ragnerock.resources.base import _Resource
 from ragnerock.session import Session
 
 _FILTER_HELP = (
@@ -87,7 +94,7 @@ def _run_get(
     with open_session() as session:
         if name is not None:
             item = _fetch_single(session, spec, name, filters)
-            items: list[_Resource] = [item] if item is not None else []
+            items: list[BaseModel] = [item] if item is not None else []
         else:
             items = _fetch_list(session, spec, filters)
 
@@ -118,8 +125,10 @@ def _fetch_single(
     spec: KindSpec,
     name: str,
     filters: dict[str, str],
-) -> _Resource | None:
+) -> BaseModel | None:
     """Fetch a single resource, preferring lookup-by-name when supported."""
+    if spec.cls is None:
+        return _match_name(_fetch_list(session, spec, filters), name)
     if spec.cls in (Annotation, Chunk, Page):
         typer.echo(
             f"{spec.kind} does not support lookup by name. "
@@ -131,19 +140,38 @@ def _fetch_single(
         result = session.get(spec.cls, name=name)
     except Exception as e:
         raise typer.Exit(code=_exit_for(e)) from e
-    return result  # type: ignore[return-value]
+    return result
+
+
+def _match_name(items: list[BaseModel], name: str) -> BaseModel | None:
+    """Return the first item whose name-like field (or ``id``) equals ``name``."""
+    for attr in (*NAME_FIELDS, "id"):
+        for item in items:
+            value = getattr(item, attr, None)
+            if value is not None and str(value) == name:
+                return item
+    return None
 
 
 def _fetch_list(
     session: Session,
     spec: KindSpec,
     filters: dict[str, str],
-) -> list[_Resource]:
+) -> list[BaseModel]:
     """Fetch a list of resources, applying kind-specific filter translations."""
+    if spec.cls is None:
+        if filters:
+            typer.echo(f"{spec.kind} does not support --filter.", err=True)
+            raise typer.Exit(code=1)
+        assert spec.list_fn is not None
+        try:
+            return spec.list_fn(session)
+        except Exception as e:
+            raise typer.Exit(code=_exit_for(e)) from e
     kwargs = _translate_list_filters(spec, filters)
     try:
         iterator = session.list(spec.cls, **kwargs)
-        return list(iterator.all())  # type: ignore[arg-type]
+        return list(iterator.all())
     except Exception as e:
         raise typer.Exit(code=_exit_for(e)) from e
 
@@ -165,14 +193,5 @@ def _translate_list_filters(spec: KindSpec, filters: dict[str, str]) -> dict[str
 
 
 def _exit_for(exc: Exception) -> int:
-    """Pick an exit code from an SDK exception.
-
-    1 for user/lookup errors, 2 for anything else (server/network).
-    """
-    from ragnerock.errors import NotFoundError, ValidationError
-
-    if isinstance(exc, (NotFoundError, ValidationError)):
-        typer.echo(f"{type(exc).__name__}: {exc}", err=True)
-        return 1
-    typer.echo(f"{type(exc).__name__}: {exc}", err=True)
-    return 2
+    """Pick an exit code from an SDK exception (see :mod:`ragnerock.cli.errors`)."""
+    return exit_code_for(exc)

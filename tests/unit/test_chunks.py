@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 
 import pytest
@@ -61,32 +62,39 @@ class TestCreate:
         httpx_mock.add_response(
             method="POST",
             url=f"{base_url}/api/chunks/",
-            json=payloads.chunk(
-                id="00000000-0000-0000-0000-00000000cccc",
-                start_index=0,
-                end_index=5,
-            ),
+            json=payloads.chunk(id="00000000-0000-0000-0000-00000000cccc"),
         )
         chunk = Chunk(
             document_id="00000000-0000-0000-0000-000000000101",
             content="hello",
-            start_index=0,
-            end_index=5,
+            document_offset=3,
+            chunk_type=ChunkType.PARAGRAPH,
+            start_char_idx=0,
+            end_char_idx=5,
         )
         session.add(chunk)
         session.commit()
         assert chunk.id is not None
+        req = [r for r in httpx_mock.get_requests() if r.method == "POST"][-1]
+        assert json.loads(req.content) == {
+            "document_id": "00000000-0000-0000-0000-000000000101",
+            "content": "hello",
+            "document_offset": 3,
+            "chunk_type": 2,
+            "start_char_idx": 0,
+            "end_char_idx": 5,
+        }
 
     def test_create_requires_document_id(self, session):
         from ragnerock import CommitError
 
-        chunk = Chunk(content="x", start_index=0, end_index=1)
+        chunk = Chunk(content="x", document_offset=0, chunk_type=ChunkType.PARAGRAPH)
         session.add(chunk)
         with pytest.raises(CommitError) as exc:
             session.commit()
         assert isinstance(exc.value.cause, ValidationError)
 
-    def test_create_requires_indices(self, session):
+    def test_create_requires_offset_and_type(self, session):
         from ragnerock import CommitError
 
         chunk = Chunk(

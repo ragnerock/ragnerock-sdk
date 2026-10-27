@@ -28,6 +28,13 @@ result.row_count          # int
 result.columns            # ['vendor', 'total']
 result.to_dict()          # [{'vendor': 'Acme', 'total': 1234.56}, ...]
 result.query_time_ms      # int or None
+result.truncated          # True if more rows matched than `limit` returned
+```
+
+Pass `include_provenance=True` to also get, for each row, the documents, chunks, or annotations it was derived from, on `result.provenance`:
+
+```python
+result = session.query("SELECT vendor, total FROM invoice_extract", include_provenance=True)
 ```
 
 ### To pandas
@@ -67,3 +74,17 @@ except QueryError as e:
 ```
 
 See [errors.md](errors.md) for the full error hierarchy.
+
+## Saved queries
+
+Save a query to the project to reuse it (and share it in the app) through the low-level client:
+
+```python
+saved = engine.client.queries.create(
+    engine.project_id,
+    name="Top vendors",
+    query_sql="SELECT vendor, SUM(total) FROM invoice_extract GROUP BY vendor",
+)
+for q in engine.client.queries.list(project_ids=str(engine.project_id)).queries:
+    print(q.name)
+```

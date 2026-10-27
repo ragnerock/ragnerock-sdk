@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from urllib.parse import unquote, urlparse
 from uuid import UUID
 
@@ -148,44 +149,44 @@ class Engine:
         return self._project_id
 
 
-def create_engine(connection_string: str) -> Engine:
-    """Create an :class:`Engine` from a connection string.
+@dataclass(frozen=True)
+class ConnectionInfo:
+    """The parts of a parsed ``ragnerock://`` connection string.
 
-    Two authentication modes are supported:
+    Attributes:
+        host (str): Base API URL including scheme (``https://...``, or
+            ``http://...`` for ``localhost`` / ``127.0.0.1``).
+        project_name (str | None): Project name from the DSN path, or
+            ``None`` when the DSN has no path.
+        email (str | None): Account email (email/password mode).
+        password (str | None): Account password (email/password mode).
+        auth_token (str | None): API token (token mode), from the DSN or
+            ``RAGNEROCK_API_TOKEN``.
+    """
 
-    1. **Email + password** (interactive accounts)::
+    host: str
+    project_name: str | None
+    email: str | None
+    password: str | None
+    auth_token: str | None
 
-        ragnerock://{email}:{password}@{host}[:{port}]/{project_name}
 
-    2. **API token** (CI, scripts, service accounts) — the literal username
-       ``token`` is a sentinel that means "the password slot holds a bearer
-       token, not a password"::
+def parse_connection_string(
+    connection_string: str, *, require_project: bool = True
+) -> ConnectionInfo:
+    """Parse and validate a ``ragnerock://`` connection string.
 
-        ragnerock://token:{api_token}@{host}[:{port}]/{project_name}
-
-    When no userinfo is present in the DSN
-    (``ragnerock://{host}/{project_name}``), the token is read from the
-    ``RAGNEROCK_API_TOKEN`` environment variable. Precedence: an inline DSN
-    token wins over the env var. Supplying email/password in the DSN while
-    also setting ``RAGNEROCK_API_TOKEN`` raises :class:`ValueError` rather
-    than silently picking one.
-
-    Tokens containing ``:``, ``/``, ``@``, ``?``, ``#``, ``%`` must be
-    percent-encoded.
-
-    Examples::
-
-        create_engine("ragnerock://user@example.com:pass@api.ragnerock.com/my_project")
-        create_engine("ragnerock://token:abc123@api.ragnerock.com/my_project")
-        # With RAGNEROCK_API_TOKEN set in the environment:
-        create_engine("ragnerock://api.ragnerock.com/my_project")
+    See :func:`create_engine` for the accepted forms and the
+    ``RAGNEROCK_API_TOKEN`` fallback.
 
     Args:
         connection_string (str): A Ragnerock connection string.
+        require_project (bool): Whether the project path is mandatory.
+            :func:`create_client` passes ``False``, since account-level calls
+            such as GitOps apply need no project.
 
     Returns:
-        Engine: An unconnected :class:`Engine` (no network I/O has happened
-        yet).
+        ConnectionInfo: The parsed connection details.
 
     Raises:
         ValueError: If the connection string is malformed, no authentication
@@ -204,8 +205,8 @@ def create_engine(connection_string: str) -> Engine:
     if not parsed.hostname:
         raise ValueError("Invalid connection string: missing host")
 
-    project_name = parsed.path.lstrip("/")
-    if not project_name:
+    project_name = parsed.path.strip("/") or None
+    if project_name is None and require_project:
         raise ValueError(
             "Invalid connection string: missing project name (expected '.../{project_name}')"
         )
@@ -261,11 +262,99 @@ def create_engine(connection_string: str) -> Engine:
     else:
         host = f"{scheme_out}://{hostname}"
 
-    if auth_token is not None:
-        return Engine(host=host, project_name=project_name, auth_token=auth_token)
-    return Engine(
+    return ConnectionInfo(
         host=host,
         project_name=project_name,
         email=dsn_email,
         password=dsn_password,
+        auth_token=auth_token,
     )
+
+
+def create_engine(connection_string: str) -> Engine:
+    """Create an :class:`Engine` from a connection string.
+
+    Two authentication modes are supported:
+
+    1. **Email + password** (interactive accounts)::
+
+        ragnerock://{email}:{password}@{host}[:{port}]/{project_name}
+
+    2. **API token** (CI, scripts, service accounts) — the literal username
+       ``token`` is a sentinel that means "the password slot holds a bearer
+       token, not a password"::
+
+        ragnerock://token:{api_token}@{host}[:{port}]/{project_name}
+
+    When no userinfo is present in the DSN
+    (``ragnerock://{host}/{project_name}``), the token is read from the
+    ``RAGNEROCK_API_TOKEN`` environment variable. Precedence: an inline DSN
+    token wins over the env var. Supplying email/password in the DSN while
+    also setting ``RAGNEROCK_API_TOKEN`` raises :class:`ValueError` rather
+    than silently picking one.
+
+    Tokens containing ``:``, ``/``, ``@``, ``?``, ``#``, ``%`` must be
+    percent-encoded.
+
+    Examples::
+
+        create_engine("ragnerock://user@example.com:pass@api.ragnerock.com/my_project")
+        create_engine("ragnerock://token:abc123@api.ragnerock.com/my_project")
+        # With RAGNEROCK_API_TOKEN set in the environment:
+        create_engine("ragnerock://api.ragnerock.com/my_project")
+
+    Args:
+        connection_string (str): A Ragnerock connection string.
+
+    Returns:
+        Engine: An unconnected :class:`Engine` (no network I/O has happened
+        yet).
+
+    Raises:
+        ValueError: If the connection string is malformed, no authentication
+            method can be resolved, or conflicting credentials are supplied.
+    """
+    info = parse_connection_string(connection_string)
+    assert info.project_name is not None
+    if info.auth_token is not None:
+        return Engine(
+            host=info.host, project_name=info.project_name, auth_token=info.auth_token
+        )
+    return Engine(
+        host=info.host,
+        project_name=info.project_name,
+        email=info.email,
+        password=info.password,
+    )
+
+
+def create_client(connection_string: str) -> RagnerockClient:
+    """Create an authenticated low-level client from a connection string.
+
+    Accepts the same forms as :func:`create_engine`, but the project path is
+    optional: use this for account-level calls that aren't scoped to one
+    project, such as :func:`ragnerock.gitops.apply_manifests`. With
+    email/password credentials this logs in immediately.
+
+    Examples::
+
+        client = create_client("ragnerock://token:abc123@api.ragnerock.com")
+
+    Args:
+        connection_string (str): A Ragnerock connection string, with or
+            without a ``/{project_name}`` path.
+
+    Returns:
+        RagnerockClient: A client with its bearer token set.
+
+    Raises:
+        ValueError: If the connection string is malformed or carries no
+            credentials.
+        AuthenticationError: If an email/password login is rejected.
+    """
+    info = parse_connection_string(connection_string, require_project=False)
+    client = RagnerockClient(host=info.host, auth_token=info.auth_token)
+    if info.auth_token is None:
+        assert info.email is not None and info.password is not None
+        client.auth.login(email=info.email, password=info.password)
+    return client

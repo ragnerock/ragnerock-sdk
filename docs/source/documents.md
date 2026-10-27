@@ -97,7 +97,22 @@ chunks = session.list(Chunk, document_id=doc.id).all()
 one = session.get(Chunk, id="...")
 ```
 
-`ChunkType` values: `DOCUMENT`, `PAGE`, `SECTION`, `PARAGRAPH`, `SENTENCE`.
+Each chunk carries its text (`content`), its position in the document (`document_offset`), its scope (`chunk_type`), optional character offsets into the extracted text (`start_char_idx`, `end_char_idx`), and the `page_id` it was parsed from.
+
+`ChunkType` values: `DOCUMENT`, `PAGE`, `PARAGRAPH`, `SENTENCE` for documents, and `SHEET`, `ROW`, `ROW_WINDOW` for tabular sources (spreadsheets, CSVs, SQL ingest tables).
+
+To create a chunk by hand:
+
+```python
+chunk = Chunk(
+    document_id=doc.id,
+    content="Revenue grew 12% year over year.",
+    document_offset=4,
+    chunk_type=ChunkType.PARAGRAPH,
+)
+session.add(chunk)
+session.commit()
+```
 
 ## Pages
 
@@ -109,4 +124,17 @@ page = session.get(Page, id="...")
 print(page.page_number, page.content)
 ```
 
-Attempting `session.add(page)` / `update` / `delete` raises exceptions as they are read-only
+Attempting `session.add(page)` / `update` / `delete` raises exceptions as they are read-only.
+
+## Processing status
+
+`doc.status` reports where the server is with a document: `PENDING`, `PROCESSING`, `READY`, or `ERROR` (and `FETCHING` / `NOT_FETCHED` for documents an ingest source pulls). For stage-by-stage progress, fetch the document's job:
+
+```python
+from ragnerock import DocumentStatus
+
+session.refresh(doc)
+if doc.status is not DocumentStatus.READY:
+    job = doc.job()
+    print(job.phase, job.current_stage_name, job.current_stage_subtasks_completed)
+```

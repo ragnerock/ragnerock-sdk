@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import textwrap
 from contextlib import contextmanager
 from typing import Any, Iterator
 from unittest.mock import MagicMock
@@ -45,7 +44,6 @@ def fake_session(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     for mod in (
         app_module,
         commands.get,
-        commands.apply,
         commands.delete,
         commands.run,
         commands.query,
@@ -110,7 +108,7 @@ def test_get_by_name_yaml(runner: CliRunner, fake_session: MagicMock) -> None:
     fake_session.get.return_value = _operator("sentiment")
     result = runner.invoke(app, ["get", "operator", "sentiment", "-o", "yaml"])
     assert result.exit_code == 0, result.stderr
-    assert "kind: Operator" in result.stdout
+    assert "operator_kind: LLM" in result.stdout
     assert "name: sentiment" in result.stdout
 
 
@@ -125,7 +123,8 @@ def test_describe_defaults_to_yaml(runner: CliRunner, fake_session: MagicMock) -
     fake_session.get.return_value = _operator("sentiment")
     result = runner.invoke(app, ["describe", "op", "sentiment"])
     assert result.exit_code == 0, result.stderr
-    assert "kind: Operator" in result.stdout
+    assert "name: sentiment" in result.stdout
+    assert "generation_prompt: Classify" in result.stdout
 
 
 def test_describe_accepts_output_flag(
@@ -143,52 +142,6 @@ def test_unknown_kind_exits_with_error(
     result = runner.invoke(app, ["get", "widget"])
     assert result.exit_code != 0
     assert "Unknown resource kind" in (result.stderr or result.stdout)
-
-
-# -- apply -----------------------------------------------------------------
-
-
-def test_apply_from_stdin(runner: CliRunner, fake_session: MagicMock) -> None:
-    fake_session.get.return_value = None
-    manifest = textwrap.dedent(
-        """
-        kind: Operator
-        metadata: { name: sentiment }
-        spec:
-          generation_prompt: "Classify"
-          chunk_type: PARAGRAPH
-          jsonschema: { type: object }
-        """
-    )
-    result = runner.invoke(app, ["apply", "-f", "-"], input=manifest)
-    assert result.exit_code == 0, result.stderr
-    fake_session.add.assert_called()
-    fake_session.commit.assert_called()
-    assert "operator/sentiment created" in result.stdout
-
-
-def test_apply_updates_existing(runner: CliRunner, fake_session: MagicMock) -> None:
-    existing = _operator("sentiment")
-    fake_session.get.return_value = existing
-    manifest = textwrap.dedent(
-        """
-        kind: Operator
-        metadata: { name: sentiment }
-        spec:
-          generation_prompt: "Updated"
-        """
-    )
-    result = runner.invoke(app, ["apply", "-f", "-"], input=manifest)
-    assert result.exit_code == 0, result.stderr
-    assert existing.generation_prompt == "Updated"
-    fake_session.update.assert_called_with(existing)
-    assert "operator/sentiment configured" in result.stdout
-
-
-def test_apply_missing_file_raises(runner: CliRunner, fake_session: MagicMock) -> None:
-    result = runner.invoke(app, ["apply", "-f", "/does/not/exist.yaml"])
-    assert result.exit_code == 1
-    assert "ManifestError" in result.stderr
 
 
 # -- delete ----------------------------------------------------------------
@@ -210,18 +163,18 @@ def test_delete_not_found(runner: CliRunner, fake_session: MagicMock) -> None:
     assert "not found" in result.stderr
 
 
-def test_delete_from_stdin(runner: CliRunner, fake_session: MagicMock) -> None:
-    fake_session.get.return_value = _operator("sentiment")
-    manifest = textwrap.dedent(
-        """
-        kind: Operator
-        metadata: { name: sentiment }
-        spec: {}
-        """
-    )
-    result = runner.invoke(app, ["delete", "-f", "-"], input=manifest)
-    assert result.exit_code == 0, result.stderr
-    fake_session.delete.assert_called()
+def test_delete_refuses_non_deletable_kind(
+    runner: CliRunner, fake_session: MagicMock
+) -> None:
+    result = runner.invoke(app, ["delete", "chunk", "x"])
+    assert result.exit_code == 1
+    assert "does not support name-based delete" in result.stderr
+    fake_session.delete.assert_not_called()
+
+
+def test_delete_no_longer_accepts_files(runner: CliRunner) -> None:
+    result = runner.invoke(app, ["delete", "-f", "x.yaml"])
+    assert result.exit_code == 2
 
 
 # -- run -------------------------------------------------------------------

@@ -173,7 +173,7 @@ class TestRateLimitRetries:
 
     def test_succeeds_after_429_retry(self, httpx_mock, session, payloads, monkeypatch):
         sleeps: list[float] = []
-        monkeypatch.setattr("ragnerock.client.time.sleep", sleeps.append)
+        monkeypatch.setattr("ragnerock.client._client.time.sleep", sleeps.append)
 
         doc_id = "00000000-0000-0000-0000-000000000101"
         url = re.compile(rf".*/api/documents/{doc_id}$")
@@ -198,7 +198,7 @@ class TestRateLimitRetries:
     def test_raises_rate_limit_when_retries_exhausted(
         self, httpx_mock, session, monkeypatch, engine
     ):
-        monkeypatch.setattr("ragnerock.client.time.sleep", lambda _s: None)
+        monkeypatch.setattr("ragnerock.client._client.time.sleep", lambda _s: None)
         # Tighten the budget so the test doesn't have to queue many responses.
         engine.client._max_rate_limit_retries = 2
 
@@ -221,7 +221,7 @@ class TestRateLimitRetries:
         self, httpx_mock, session, payloads, monkeypatch, engine
     ):
         sleeps: list[float] = []
-        monkeypatch.setattr("ragnerock.client.time.sleep", sleeps.append)
+        monkeypatch.setattr("ragnerock.client._client.time.sleep", sleeps.append)
         engine.client._rate_limit_backoff = 1.0
 
         doc_id = "00000000-0000-0000-0000-000000000101"
@@ -247,7 +247,7 @@ class TestRateLimitRetries:
     def test_retries_disabled_surfaces_immediately(
         self, httpx_mock, session, monkeypatch, engine
     ):
-        monkeypatch.setattr("ragnerock.client.time.sleep", lambda _s: None)
+        monkeypatch.setattr("ragnerock.client._client.time.sleep", lambda _s: None)
         engine.client._max_rate_limit_retries = 0
 
         doc_id = "00000000-0000-0000-0000-000000000101"

@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.abspath("../.."))
 project = "Ragnerock"
 copyright = "2026, john@ragnerock.com, matthew@ragnerock.com"
 author = "john@ragnerock.com, matthew@ragnerock.com"
-release = "1.0.0"
+release = "2.0.0"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -56,7 +56,7 @@ napoleon_include_special_with_doc = True
 napoleon_use_admonition_for_examples = False
 napoleon_use_admonition_for_notes = True
 napoleon_use_admonition_for_references = False
-napoleon_use_ivar = False
+napoleon_use_ivar = True
 napoleon_use_param = True
 napoleon_use_rtype = True
 napoleon_preprocess_types = True
