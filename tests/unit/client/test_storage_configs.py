@@ -149,23 +149,6 @@ class TestDBCreate:
         }
         assert result.id == CONFIG_ID
 
-    def test_create_ephemeral(self, client: RagnerockClient, httpx_mock: Any) -> None:
-        httpx_mock.add_response(
-            method="POST",
-            url=url("/api/db-configs/ephemeral"),
-            json={"id": str(CONFIG_ID), "message": "created"},
-        )
-
-        result = client.db_configs.create_ephemeral(
-            blob_config_id=BLOB_ID, config_name="Ephemeral"
-        )
-
-        assert last_json(httpx_mock) == {
-            "blob_config_id": str(BLOB_ID),
-            "config_name": "Ephemeral",
-        }
-        assert result.id == CONFIG_ID
-
 
 class TestDBProviders:
     def test_parses_providers_and_auth_methods(

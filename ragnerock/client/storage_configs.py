@@ -305,8 +305,8 @@ class _DatabaseConfigsSection(_Section):
     ) -> CreateDBConfigResponse:
         """Create a database config.
 
-        Calls ``POST /api/db-configs/``. BigQuery and blob-backed (ephemeral)
-        configs have their own create calls.
+        Calls ``POST /api/db-configs/``. BigQuery configs have their own
+        create call, :meth:`create_bigquery`.
 
         A Db2 connection string names its auth method with ``auth``:
         ``db2://user:password@host:port/database?auth=password``,
@@ -393,32 +393,6 @@ class _DatabaseConfigsSection(_Section):
         )
         response = self._parent._request(
             "POST", "/api/db-configs/bigquery", json_body=body
-        )
-        return CreateDBConfigResponse.model_validate(response.json())
-
-    def create_ephemeral(
-        self,
-        *,
-        blob_config_id: UUID,
-        config_name: str | None = None,
-    ) -> CreateDBConfigResponse:
-        """Create an ephemeral database config backed by blob storage.
-
-        Calls ``POST /api/db-configs/ephemeral``. Ephemeral mode keeps
-        document data (chunks, annotations) in the account's blob storage
-        instead of a database.
-
-        Args:
-            blob_config_id (UUID): A validated blob storage config to store
-                the data in.
-            config_name (str | None): Friendly name.
-
-        Returns:
-            CreateDBConfigResponse: The new config's id.
-        """
-        body = _body(blob_config_id=blob_config_id, config_name=config_name)
-        response = self._parent._request(
-            "POST", "/api/db-configs/ephemeral", json_body=body
         )
         return CreateDBConfigResponse.model_validate(response.json())
 
