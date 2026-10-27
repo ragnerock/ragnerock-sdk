@@ -5,12 +5,37 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from pydantic import BaseModel, ConfigDict, model_validator
+
 from ragnerock.errors import ValidationError
 from ragnerock.resources.base import OptionalDateTime, _Resource
 from ragnerock.resources.condition import compile_condition
 
 if TYPE_CHECKING:
     from ragnerock.resources.operator import Operator
+    from ragnerock.session import Session
+
+
+class WorkflowSchedule(BaseModel):
+    """A workflow's recurring-run schedule.
+
+    Saving a schedule authorizes recurring unattended runs under the saving
+    user's identity. The expression and timezone are validated server-side.
+
+    Attributes:
+        cron (str): A five-field crontab expression, e.g. ``"0 6 * * 1-5"``.
+        timezone (str): IANA timezone the crontab is interpreted in.
+        enabled (bool): Whether the schedule fires.
+        lookback (int | None): Minimum width of each run's fetch window, in
+            seconds. ``None`` uses whatever the schedule's tiling produces.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    cron: str
+    timezone: str = "UTC"
+    enabled: bool = True
+    lookback: int | None = None
 
 
 class WorkflowNode(_Resource):
@@ -19,8 +44,8 @@ class WorkflowNode(_Resource):
     Nodes are created via :meth:`Workflow.add_node` and wired into a DAG with
     the ``>>`` operator (see :meth:`__rshift__` and :meth:`__rrshift__`). The
     ``in_nodes`` and ``out_nodes`` lists record the node's position in the
-    graph; ``on_error`` accepts values such as ``"FAIL_JOB"`` or
-    ``"SKIP_NODE"``.
+    graph; ``on_error`` accepts ``"SKIP_NODE"`` (the server default) or
+    ``"FAIL_JOB"``.
     """
 
     id: UUID | None = None
@@ -29,10 +54,18 @@ class WorkflowNode(_Resource):
     operator_name: str | None = None
     condition: dict[str, Any] | None = None
     persist: bool = True
-    on_error: str = "FAIL_JOB"
+    on_error: str = "SKIP_NODE"
     max_retries: int = 0
+    annotations_only: bool = False
     in_nodes: list[UUID] = []
     out_nodes: list[UUID] = []
+    position_x: int | None = None
+    position_y: int | None = None
+    position_z: int | None = None
+    target_resource_id: UUID | None = None
+    context_resource_ids: list[UUID] = []
+    include_schedule_context: bool = False
+    required_functions: list[str] = []
 
     def __rshift__(
         self, other: WorkflowNode | list[WorkflowNode]
@@ -158,12 +191,48 @@ class Workflow(_Resource):
     name: str | None = None
     description: str | None = None
     is_active: bool = True
-    auto_run_on_upload: bool = True
+    auto_run_on_upload: bool = False
+    is_draft: bool = False
     created_by_id: UUID | None = None
     created_at: OptionalDateTime = None
     updated_at: OptionalDateTime = None
-    execution_order: list[UUID] = []
+    execution_order: list[str] = []
     nodes: list[WorkflowNode] = []
+    resources: list[dict[str, Any]] = []
+    sinks: list[dict[str, Any]] = []
+    schedule: WorkflowSchedule | None = None
+    schedule_state: dict[str, Any] | None = None
+    schedules_enabled: bool = True
+    pending_change_request_count: int = 0
+
+    @model_validator(mode="after")
+    def _adopt_nodes(self) -> Workflow:
+        """Stamp this workflow's id onto nested nodes that lack one.
+
+        The server's workflow payload describes nodes without repeating the
+        parent id, but a node needs ``workflow_id`` to be updated, deleted, or
+        wired with ``>>``.
+
+        Returns:
+            Workflow: ``self``.
+        """
+        if self.id is not None:
+            for node in self.nodes:
+                if node.workflow_id is None:
+                    node.workflow_id = self.id
+                if node._session is None and self._session is not None:
+                    node._bind(self._session)
+        return self
+
+    def _bind(self, session: Session) -> None:
+        """Attach a session to this workflow and to each of its nodes.
+
+        Args:
+            session (Session): The session that produced this workflow.
+        """
+        super()._bind(session)
+        for node in self.nodes:
+            node._bind(session)
 
     def add_node(
         self,
@@ -171,8 +240,9 @@ class Workflow(_Resource):
         operator: Operator,
         condition: dict[str, Any] | None = None,
         persist: bool = True,
-        on_error: str = "FAIL_JOB",
+        on_error: str = "SKIP_NODE",
         max_retries: int = 0,
+        annotations_only: bool = False,
     ) -> WorkflowNode:
         """Stage a new :class:`WorkflowNode` wrapping ``operator``.
 
@@ -188,8 +258,11 @@ class Workflow(_Resource):
                 condition grammar via
                 :func:`ragnerock.resources.condition.compile_condition`.
             persist (bool): Whether annotations produced here are persisted.
-            on_error (str): Error-handling policy.
+            on_error (str): Error-handling policy: ``"SKIP_NODE"`` (default)
+                or ``"FAIL_JOB"``.
             max_retries (int): Retry count on transient failure.
+            annotations_only (bool): Whether the node only emits annotations
+                (no downstream documents or outputs).
 
         Returns:
             WorkflowNode: The newly staged node.
@@ -225,6 +298,7 @@ class Workflow(_Resource):
             persist=persist,
             on_error=on_error,
             max_retries=max_retries,
+            annotations_only=annotations_only,
         )
         self._session.add(node)
         self.nodes = [*self.nodes, node]

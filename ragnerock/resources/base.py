@@ -8,23 +8,21 @@ methods like ``doc.list(Chunk)``.
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, PrivateAttr
+from pydantic import BaseModel, ConfigDict, PrivateAttr
+
+from ragnerock.timestamps import UtcDatetime
 
 if TYPE_CHECKING:
     from ragnerock.iterator import PaginatedIterator
     from ragnerock.session import Session
 
+OptionalDateTime = UtcDatetime
+"""Optional resource timestamp, normalized to timezone-aware UTC.
 
-def _empty_str_to_none(value: Any) -> Any:
-    if isinstance(value, str) and value == "":
-        return None
-    return value
-
-
-OptionalDateTime = Annotated[datetime | None, BeforeValidator(_empty_str_to_none)]
+Alias of :data:`ragnerock.timestamps.UtcDatetime`.
+"""
 
 
 class _Resource(BaseModel):

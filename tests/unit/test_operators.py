@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import re
+from uuid import UUID
 
 import pytest
 
-from ragnerock import ChunkType, Operator, ValidationError
+from ragnerock import ChunkType, Operator, OperatorKind, ValidationError
 
 
 class TestGet:
@@ -79,6 +81,48 @@ class TestCreate:
         session.add(op)
         session.commit()
         assert op.id is not None
+        body = json.loads(httpx_mock.get_requests()[-1].content)
+        assert body["operator_kind"] == "LLM"
+        assert body["chunk_type"] == 0
+
+    def test_create_code_operator(self, httpx_mock, session, payloads, base_url):
+        httpx_mock.add_response(
+            method="POST",
+            url=f"{base_url}/api/operators/",
+            json=payloads.operator(
+                id="00000000-0000-0000-0000-0000000000f2",
+                operator_kind="CODE",
+                generation_prompt=None,
+            ),
+        )
+        op = Operator(
+            name="row_total",
+            operator_kind=OperatorKind.CODE,
+            jsonschema={"type": "object"},
+            code_source="def main(content):\n    return {}",
+            chunk_type=ChunkType.ROW,
+        )
+        session.add(op)
+        session.commit()
+        body = json.loads(httpx_mock.get_requests()[-1].content)
+        assert body["operator_kind"] == "CODE"
+        assert body["code_source"].startswith("def main")
+        assert "generation_prompt" not in body
+        assert op.operator_kind == OperatorKind.CODE
+
+    def test_code_operator_requires_code_source(self, session):
+        from ragnerock import CommitError
+
+        op = Operator(
+            name="x",
+            operator_kind=OperatorKind.CODE,
+            jsonschema={"type": "object"},
+            chunk_type=ChunkType.ROW,
+        )
+        session.add(op)
+        with pytest.raises(CommitError) as exc:
+            session.commit()
+        assert isinstance(exc.value.cause, ValidationError)
 
     @pytest.mark.parametrize(
         "kwargs",
@@ -132,3 +176,31 @@ class TestUpdateDelete:
         op = Operator(**payloads.operator(id=op_id))
         session.delete(op)
         session.commit()
+
+
+class TestClientUpdateUnset:
+    """``client.operators.update`` distinguishes omitted from explicit ``None``."""
+
+    def test_omitted_clearable_fields_are_not_sent(
+        self, httpx_mock, engine, payloads, base_url
+    ):
+        op_id = "00000000-0000-0000-0000-000000000601"
+        httpx_mock.add_response(
+            method="PUT",
+            url=f"{base_url}/api/operators/{op_id}",
+            json=payloads.operator(),
+        )
+        engine.client.operators.update(UUID(op_id), name="renamed")
+        body = json.loads(httpx_mock.get_requests()[-1].content)
+        assert body == {"name": "renamed"}
+
+    def test_explicit_none_clears(self, httpx_mock, engine, payloads, base_url):
+        op_id = "00000000-0000-0000-0000-000000000601"
+        httpx_mock.add_response(
+            method="PUT",
+            url=f"{base_url}/api/operators/{op_id}",
+            json=payloads.operator(),
+        )
+        engine.client.operators.update(UUID(op_id), ai_config_id=None, batch_size=None)
+        body = json.loads(httpx_mock.get_requests()[-1].content)
+        assert body == {"ai_config_id": None, "batch_size": None}

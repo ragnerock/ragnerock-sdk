@@ -145,7 +145,8 @@ class _Payloads:
             "created_at": "2026-04-16T12:00:00Z",
             "updated_at": "2026-04-16T12:00:00Z",
             "created_by_id": "00000000-0000-0000-0000-0000000000aa",
-            "metadata": None,
+            "status": "ready",
+            "is_sample": False,
         }
         base.update(overrides)
         return base
@@ -165,11 +166,11 @@ class _Payloads:
             "id": "00000000-0000-0000-0000-000000000301",
             "document_id": "00000000-0000-0000-0000-000000000101",
             "content": "Hello world.",
-            "start_index": 0,
-            "end_index": 12,
-            "chunk_type": 4,
-            "metadata": None,
-            "created_at": "2026-04-16T12:00:00Z",
+            "document_offset": 0,
+            "chunk_type": 2,
+            "start_char_idx": 0,
+            "end_char_idx": 12,
+            "page_id": None,
         }
         base.update(overrides)
         return base
@@ -180,7 +181,7 @@ class _Payloads:
             "document_id": "00000000-0000-0000-0000-000000000101",
             "page_number": 1,
             "content": "Page one text",
-            "metadata": None,
+            "created_at": "2026-04-16T12:00:00Z",
         }
         base.update(overrides)
         return base
@@ -213,10 +214,12 @@ class _Payloads:
                 "properties": {"total": {"type": "number"}},
             },
             "generation_prompt": "Extract the total.",
-            "chunk_type": 1,
+            "chunk_type": 0,
             "batch_size": None,
             "multi_annotation": False,
+            "operator_kind": "LLM",
             "created_at": "2026-04-16T12:00:00Z",
+            "updated_at": "2026-04-16T12:00:00Z",
         }
         base.update(overrides)
         return base
@@ -231,7 +234,7 @@ class _Payloads:
             "created_at": "2026-04-16T12:00:00Z",
             "updated_at": "2026-04-16T12:00:00Z",
             "is_active": True,
-            "auto_run_on_upload": True,
+            "auto_run_on_upload": False,
             "execution_order": [],
             "nodes": [],
         }
@@ -246,8 +249,31 @@ class _Payloads:
             "operator_name": "invoice_extract",
             "condition": None,
             "persist": True,
-            "on_error": "FAIL_JOB",
+            "on_error": "SKIP_NODE",
             "max_retries": 0,
+            "annotations_only": False,
+            "in_nodes": [],
+            "out_nodes": [],
+        }
+        base.update(overrides)
+        return base
+
+    def workflow_node_info(self, **overrides):
+        """A node as embedded in a workflow payload (no ``workflow_id``)."""
+        base = {
+            "id": "00000000-0000-0000-0000-000000000702",
+            "operator_id": "00000000-0000-0000-0000-000000000601",
+            "operator_name": "invoice_extract",
+            "operator_jsonschema": {},
+            "operator_chunk_type": 0,
+            "condition": None,
+            "persist": True,
+            "on_error": "SKIP_NODE",
+            "annotations_only": False,
+            "condition_mode": None,
+            "position_x": None,
+            "position_y": None,
+            "position_z": None,
             "in_nodes": [],
             "out_nodes": [],
         }

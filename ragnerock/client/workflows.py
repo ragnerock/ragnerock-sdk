@@ -87,7 +87,7 @@ class _WorkflowsSection(_Section):
         name: str,
         description: str | None = None,
         is_active: bool = True,
-        auto_run_on_upload: bool = True,
+        auto_run_on_upload: bool = False,
     ) -> WorkflowResponse:
         """Create a workflow with no nodes.
 
@@ -173,8 +173,9 @@ class _WorkflowsSection(_Section):
         operator_id: UUID,
         condition: dict[str, Any] | None = None,
         persist: bool = True,
-        on_error: str = "FAIL_JOB",
+        on_error: str = "SKIP_NODE",
         max_retries: int = 0,
+        annotations_only: bool = False,
     ) -> WorkflowNodeResponse:
         """Append an operator node to a workflow.
 
@@ -187,10 +188,10 @@ class _WorkflowsSection(_Section):
             condition (dict[str, Any] | None): Optional predicate restricting when the node fires
                 (serialized per the server's condition grammar).
             persist (bool): Whether annotations produced here are persisted.
-            on_error (str): Error-handling policy. Expected values include
-                ``"FAIL_JOB"`` (default) and ``"SKIP_NODE"``; the server is
-                the source of truth for the full set.
+            on_error (str): Error-handling policy: ``"SKIP_NODE"`` (the
+                default) or ``"FAIL_JOB"``.
             max_retries (int): Retry count on transient failure.
+            annotations_only (bool): Whether the node only emits annotations.
 
         Returns:
             WorkflowNodeResponse: The newly created node response.
@@ -200,6 +201,7 @@ class _WorkflowsSection(_Section):
             "persist": persist,
             "on_error": on_error,
             "max_retries": max_retries,
+            "annotations_only": annotations_only,
         }
         if condition is not None:
             body["condition"] = condition
@@ -223,7 +225,7 @@ class _WorkflowsSection(_Section):
         dropping ``None`` values, so this is intentionally flexible — callers
         should pass the exact field names the API expects (``operator_id``,
         ``condition``, ``persist``, ``on_error``, ``max_retries``,
-        ``in_nodes``, ``out_nodes``).
+        ``in_node_ids``, ``out_node_ids``).
 
         Args:
             workflow_id (UUID): Owning workflow.

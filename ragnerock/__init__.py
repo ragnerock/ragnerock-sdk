@@ -21,6 +21,7 @@ from ragnerock.resources import (
     ComparisonOp,
     Document,
     DocumentGroup,
+    DocumentStatus,
     FileType,
     Job,
     JobStatus,
@@ -28,9 +29,11 @@ from ragnerock.resources import (
     ListOp,
     LogicalOp,
     Operator,
+    OperatorKind,
     Page,
     Workflow,
     WorkflowNode,
+    WorkflowSchedule,
     compile_condition,
 )
 from ragnerock.session import Session
@@ -44,6 +47,7 @@ __all__ = [
     "ComparisonOp",
     "Document",
     "DocumentGroup",
+    "DocumentStatus",
     "Engine",
     "FileType",
     "Job",
@@ -53,6 +57,7 @@ __all__ = [
     "LogicalOp",
     "NotFoundError",
     "Operator",
+    "OperatorKind",
     "Page",
     "PaginatedIterator",
     "QueryError",
@@ -63,6 +68,7 @@ __all__ = [
     "ValidationError",
     "Workflow",
     "WorkflowNode",
+    "WorkflowSchedule",
     "compile_condition",
     "create_engine",
 ]

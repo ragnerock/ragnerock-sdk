@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
 from uuid import UUID
 
-from ragnerock.client._base import _ApiModel, _Section
+from ragnerock.client._base import _ApiModel, _body, _Section
 
 
 class ChunkResponse(_ApiModel):
@@ -13,6 +12,12 @@ class ChunkResponse(_ApiModel):
 
     id: UUID
     document_id: UUID
+    content: str | None = None
+    document_offset: int | None = None
+    chunk_type: int | None = None
+    start_char_idx: int | None = None
+    end_char_idx: int | None = None
+    page_id: UUID | None = None
 
 
 class ChunkListResponse(_ApiModel):
@@ -75,36 +80,40 @@ class _ChunksSection(_Section):
         self,
         *,
         document_id: UUID,
-        start_index: int,
-        end_index: int,
-        content: str | None = None,
-        metadata: dict[str, Any] | None = None,
+        content: str,
+        document_offset: int,
+        chunk_type: int,
+        start_char_idx: int | None = None,
+        end_char_idx: int | None = None,
     ) -> ChunkResponse:
         """Create a chunk on a document.
 
-        Calls ``POST /api/chunks/``. ``end_index`` is exclusive, matching
-        Python slice semantics.
+        Calls ``POST /api/chunks/``.
 
         Args:
             document_id (UUID): Owning document.
-            start_index (int): Character offset where the chunk begins.
-            end_index (int): Character offset where the chunk ends (exclusive).
-            content (str | None): Text content of the chunk. If omitted, the server
-                extracts it from the document at the given offsets.
-            metadata (dict[str, Any] | None): Arbitrary JSON metadata.
+            content (str): Text content of the chunk.
+            document_offset (int): The chunk's ordinal position within the
+                document.
+            chunk_type (int): Integer value of a
+                :class:`~ragnerock.resources.chunk.ChunkType` — the scope the
+                chunk covers.
+            start_char_idx (int | None): Character offset where the chunk
+                begins in the document's extracted text.
+            end_char_idx (int | None): Character offset where the chunk ends
+                (exclusive).
 
         Returns:
             ChunkResponse: The newly created chunk response.
         """
-        body: dict[str, Any] = {
-            "document_id": str(document_id),
-            "start_index": start_index,
-            "end_index": end_index,
-        }
-        if content is not None:
-            body["content"] = content
-        if metadata is not None:
-            body["metadata"] = metadata
+        body = _body(
+            document_id=document_id,
+            content=content,
+            document_offset=document_offset,
+            chunk_type=int(chunk_type),
+            start_char_idx=start_char_idx,
+            end_char_idx=end_char_idx,
+        )
         response = self._parent._request("POST", "/api/chunks/", json_body=body)
         return ChunkResponse.model_validate(response.json())
 

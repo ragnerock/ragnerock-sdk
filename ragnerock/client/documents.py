@@ -7,6 +7,7 @@ from typing import Any
 from uuid import UUID
 
 from ragnerock.client._base import _ApiModel, _Section
+from ragnerock.client.jobs import JobResponse
 
 
 class DocumentResponse(_ApiModel):
@@ -193,7 +194,8 @@ class _DocumentsSection(_Section):
         if storage_path is not None:
             body["storage_path"] = storage_path
         if metadata is not None:
-            body["metadata"] = metadata
+            # The update endpoint takes metadata as a JSON-encoded string.
+            body["metadata"] = json.dumps(metadata)
         response = self._parent._request(
             "PUT", f"/api/documents/{document_id}", json_body=body
         )
@@ -249,3 +251,20 @@ class _DocumentsSection(_Section):
             params={"skip": skip, "limit": limit},
         )
         return DocumentListResponse.model_validate(response.json())
+
+    def get_job(self, document_id: UUID) -> JobResponse:
+        """Fetch the latest processing job for a document.
+
+        Calls ``GET /api/documents/{document_id}/job``.
+
+        Args:
+            document_id (UUID): Document whose job to fetch.
+
+        Returns:
+            JobResponse: The document's most recent job.
+
+        Raises:
+            NotFoundError: If the document has no job.
+        """
+        response = self._parent._request("GET", f"/api/documents/{document_id}/job")
+        return JobResponse.model_validate(response.json())

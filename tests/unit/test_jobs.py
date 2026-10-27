@@ -91,37 +91,50 @@ class TestRun:
 
 
 class TestJobActions:
-    def test_cancel_updates_status(self, httpx_mock, session, payloads, base_url):
+    def test_cancel_refreshes_status(self, httpx_mock, session, payloads, base_url):
         job_id = "00000000-0000-0000-0000-000000000801"
         httpx_mock.add_response(
             method="GET",
             url=re.compile(rf".*/api/jobs/{job_id}$"),
-            json=payloads.job(id=job_id),
+            json=payloads.job(id=job_id, status=2),
         )
         httpx_mock.add_response(
             method="POST",
             url=f"{base_url}/api/jobs/{job_id}/cancel",
             json={"job_id": job_id, "status": "cancelled"},
         )
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(rf".*/api/jobs/{job_id}$"),
+            json=payloads.job(id=job_id, status=4, status_message="Cancelled"),
+        )
         job = session.get(Job, id=job_id)
         assert job is not None
-        job.cancel()  # the server JobActionResponse has no "status" int field
+        job.cancel()
+        assert job.status == JobStatus.FAILED
+        assert job.status_message == "Cancelled"
 
-    def test_retry_calls_endpoint(self, httpx_mock, session, payloads, base_url):
+    def test_retry_refreshes_status(self, httpx_mock, session, payloads, base_url):
         job_id = "00000000-0000-0000-0000-000000000801"
         httpx_mock.add_response(
             method="GET",
             url=re.compile(rf".*/api/jobs/{job_id}$"),
-            json=payloads.job(id=job_id),
+            json=payloads.job(id=job_id, status=4),
         )
         httpx_mock.add_response(
             method="POST",
             url=f"{base_url}/api/jobs/{job_id}/retry",
-            json={"job_id": job_id, "status": "queued"},
+            json={"job_id": job_id, "status": "retrying"},
+        )
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(rf".*/api/jobs/{job_id}$"),
+            json=payloads.job(id=job_id, status=1),
         )
         job = session.get(Job, id=job_id)
         assert job is not None
         job.retry()
+        assert job.status == JobStatus.NOT_STARTED
 
     def test_cancel_on_unbound_job_raises(self):
         job = Job(id="00000000-0000-0000-0000-000000000801")

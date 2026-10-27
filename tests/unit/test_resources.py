@@ -44,9 +44,19 @@ class TestEnums:
         assert int(FileType.PDF) == 3
         assert FileType.PDF == 3
 
-    def test_chunk_type_values(self):
-        assert ChunkType.DOCUMENT == 1
-        assert ChunkType.PARAGRAPH == 4
+    def test_chunk_type_values_match_server(self):
+        assert ChunkType.DOCUMENT == 0
+        assert ChunkType.PAGE == 1
+        assert ChunkType.PARAGRAPH == 2
+        assert ChunkType.SENTENCE == 3
+        assert ChunkType.ROW == 4
+        assert ChunkType.ROW_WINDOW == 5
+        assert ChunkType.SHEET == 6
+
+    def test_only_tabular_scopes_accept_input_columns(self):
+        assert ChunkType.ROW.accepts_input_columns
+        assert ChunkType.SHEET.accepts_input_columns
+        assert not ChunkType.PARAGRAPH.accepts_input_columns
 
     def test_job_status_has_terminal_values(self):
         assert JobStatus.SUCCEEDED == 3
@@ -68,7 +78,7 @@ class TestPydanticCoercion:
         assert str(d.id).startswith("00000000")
 
     def test_chunk_type_coerced_from_int(self):
-        c = Chunk(document_id="00000000-0000-0000-0000-000000000101", chunk_type=4)
+        c = Chunk(document_id="00000000-0000-0000-0000-000000000101", chunk_type=2)
         assert c.chunk_type == ChunkType.PARAGRAPH
 
 
@@ -104,4 +114,4 @@ class TestWorkflowNodeDefaults:
         assert node.in_nodes == []
         assert node.out_nodes == []
         assert node.persist is True
-        assert node.on_error == "FAIL_JOB"
+        assert node.on_error == "SKIP_NODE"

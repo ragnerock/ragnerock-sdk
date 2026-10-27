@@ -10,6 +10,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID
 
+from pydantic import BaseModel
+
 from ragnerock.errors import (
     CommitError,
     NotFoundError,
@@ -25,6 +27,7 @@ from ragnerock.resources import (
     Job,
     JobStatus,
     Operator,
+    OperatorKind,
     Page,
     Workflow,
     WorkflowNode,
@@ -143,11 +146,33 @@ def _resource_id(resource: _Resource) -> UUID | None:
     return getattr(resource, "id", None)
 
 
+def _response_data(response: BaseModel) -> dict[str, Any]:
+    """Dump a client response model, skipping declared fields the server omitted.
+
+    Extra (undeclared) fields are always kept. Declared fields are kept only
+    when the payload actually carried them, so a response model's ``None``
+    defaults never mask a resource's own defaults.
+
+    Args:
+        response (BaseModel): A client-layer response model.
+
+    Returns:
+        dict[str, Any]: The response's fields as plain data.
+    """
+    declared = type(response).model_fields
+    sent = response.model_fields_set
+    return {
+        k: v for k, v in response.model_dump().items() if k not in declared or k in sent
+    }
+
+
 def _copy_fields(target: _Resource, response: Any) -> None:
     """Overlay fields from a server response onto a resource in place.
 
     Copies only keys that appear both in ``response`` and in ``target``'s
-    model fields. Silently no-ops for ``None`` or unsupported response shapes
+    model fields. For pydantic responses, only fields the server actually sent
+    are considered, so a field the response model declares but the payload
+    omitted never overwrites the resource's value with ``None``. Silently no-ops for ``None`` or unsupported response shapes
     so callers don't need to defend against action endpoints that return
     minimal payloads.
 
@@ -158,8 +183,8 @@ def _copy_fields(target: _Resource, response: Any) -> None:
     """
     if response is None:
         return
-    if hasattr(response, "model_dump"):
-        data = response.model_dump()
+    if isinstance(response, BaseModel):
+        data = _response_data(response)
     elif isinstance(response, dict):
         data = response
     else:
@@ -1092,14 +1117,19 @@ class Session:
         if isinstance(resource, Chunk):
             if resource.document_id is None:
                 raise ValidationError("Chunk create requires document_id")
-            if resource.start_index is None or resource.end_index is None:
-                raise ValidationError("Chunk create requires start_index and end_index")
+            if resource.content is None:
+                raise ValidationError("Chunk create requires content")
+            if resource.document_offset is None:
+                raise ValidationError("Chunk create requires document_offset")
+            if resource.chunk_type is None:
+                raise ValidationError("Chunk create requires chunk_type")
             response = client.chunks.create(
                 document_id=resource.document_id,
-                start_index=resource.start_index,
-                end_index=resource.end_index,
                 content=resource.content,
-                metadata=resource.metadata,
+                document_offset=resource.document_offset,
+                chunk_type=resource.chunk_type,
+                start_char_idx=resource.start_char_idx,
+                end_char_idx=resource.end_char_idx,
             )
             _copy_fields(resource, response)
             self._bind(resource)
@@ -1131,21 +1161,41 @@ class Session:
         if isinstance(resource, Operator):
             if not resource.name:
                 raise ValidationError("Operator create requires name")
-            if resource.jsonschema is None:
-                raise ValidationError("Operator create requires jsonschema")
-            if resource.generation_prompt is None:
-                raise ValidationError("Operator create requires generation_prompt")
+            if resource.jsonschema is None and resource.output_schema_id is None:
+                raise ValidationError(
+                    "Operator create requires jsonschema or output_schema_id"
+                )
+            if (
+                resource.operator_kind == OperatorKind.LLM
+                and resource.generation_prompt is None
+            ):
+                raise ValidationError("LLM operator create requires generation_prompt")
+            if resource.operator_kind == OperatorKind.CODE and not resource.code_source:
+                raise ValidationError("CODE operator create requires code_source")
             if resource.chunk_type is None:
                 raise ValidationError("Operator create requires chunk_type")
             response = client.operators.create(
                 project_id=self._engine.project_id,
                 name=resource.name,
+                operator_kind=resource.operator_kind,
+                chunk_type=resource.chunk_type,
                 jsonschema=resource.jsonschema,
+                output_schema_id=resource.output_schema_id,
                 generation_prompt=resource.generation_prompt,
-                chunk_type=int(resource.chunk_type),
                 description=resource.description,
                 batch_size=resource.batch_size,
+                input_columns=resource.input_columns,
                 multi_annotation=resource.multi_annotation,
+                code_source=resource.code_source,
+                network_access=resource.network_access,
+                code_timeout_seconds=resource.code_timeout_seconds,
+                ai_config_id=resource.ai_config_id,
+                model_name=resource.model_name,
+                skill_ids=resource.skill_ids,
+                tool_ids=resource.tool_ids,
+                notification_template=resource.notification_template,
+                change_request_prompt=resource.change_request_prompt,
+                change_request_signal=resource.change_request_signal,
             )
             _copy_fields(resource, response)
             self._bind(resource)
@@ -1177,6 +1227,7 @@ class Session:
                 persist=resource.persist,
                 on_error=resource.on_error,
                 max_retries=resource.max_retries,
+                annotations_only=resource.annotations_only,
             )
             _copy_fields(resource, response)
             self._bind(resource)
@@ -1235,11 +1286,21 @@ class Session:
                 description=resource.description,
                 jsonschema=resource.jsonschema,
                 generation_prompt=resource.generation_prompt,
-                chunk_type=int(resource.chunk_type)
-                if resource.chunk_type is not None
-                else None,
-                batch_size=resource.batch_size,
+                chunk_type=resource.chunk_type,
+                operator_kind=resource.operator_kind,
                 multi_annotation=resource.multi_annotation,
+                code_source=resource.code_source,
+                network_access=resource.network_access,
+                skill_ids=resource.skill_ids,
+                tool_ids=resource.tool_ids,
+                notification_template=resource.notification_template,
+                change_request_prompt=resource.change_request_prompt,
+                batch_size=resource.batch_size,
+                input_columns=resource.input_columns,
+                code_timeout_seconds=resource.code_timeout_seconds,
+                ai_config_id=resource.ai_config_id,
+                model_name=resource.model_name,
+                change_request_signal=resource.change_request_signal,
             )
             _copy_fields(resource, response)
             return
@@ -1316,6 +1377,20 @@ class Session:
         raise TypeError(f"delete dispatch not supported for {type(resource).__name__}")
 
     # -- internal --------------------------------------------------------------
+
+    def _document_job(self, document_id: UUID) -> Job:
+        """Fetch a document's latest job as a bound :class:`Job`.
+
+        Backs :meth:`Document.job`.
+
+        Args:
+            document_id (UUID): The document whose job to fetch.
+
+        Returns:
+            Job: The job, bound to this session.
+        """
+        response = self._engine.client.documents.get_job(document_id)
+        return self._bind(_build(Job, response))
 
     def _bind(self, resource: T) -> T:
         """Attach this session to ``resource`` and return it for chaining.
@@ -1421,7 +1496,9 @@ def _build(resource_type: type[T], response: Any) -> T:
 
     Keeps only the fields that match ``resource_type``'s schema, so the
     extra ``extra="allow"`` fields carried by client response models don't
-    bleed into the resource model and trip pydantic validation.
+    bleed into the resource model and trip pydantic validation. Fields the
+    response model declares but the server omitted are skipped, so the
+    resource's own defaults apply.
 
     Args:
         resource_type (type[T]): The resource class to instantiate.
@@ -1438,8 +1515,8 @@ def _build(resource_type: type[T], response: Any) -> T:
     """
     if response is None:
         return resource_type()
-    if hasattr(response, "model_dump"):
-        data = response.model_dump()
+    if isinstance(response, BaseModel):
+        data = _response_data(response)
     elif isinstance(response, dict):
         data = dict(response)
     else:

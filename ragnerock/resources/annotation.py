@@ -11,8 +11,9 @@ from ragnerock.resources.base import OptionalDateTime, _Resource
 class Annotation(_Resource):
     """An annotation produced by an operator, attached to a document, chunk, or page.
 
-    Exactly one of ``document_id``, ``chunk_id``, or ``page_id`` is typically
-    set, depending on the operator's ``chunk_type``. The server-assigned
+    Exactly one target id (``document_id``, ``chunk_id``, ``page_id``, or for
+    tabular sources ``row_id`` / ``sheet_id``) is typically set, depending on
+    the operator's ``chunk_type``. The server-assigned
     identity is carried on ``root_id``; the :attr:`id` property exposes it
     under the same name used by every other resource.
     """
@@ -20,12 +21,17 @@ class Annotation(_Resource):
     root_id: UUID | None = None
     operator_id: UUID | None = None
     operator_name: str | None = None
+    schema_id: UUID | None = None
     document_id: UUID | None = None
     chunk_id: UUID | None = None
     page_id: UUID | None = None
+    row_id: UUID | None = None
+    sheet_id: UUID | None = None
     data: dict[str, Any] | None = None
     confidence_score: float | None = None
     generation_metadata: dict[str, Any] | None = None
+    created_by_id: UUID | None = None
+    updated_by_id: UUID | None = None
     created_at: OptionalDateTime = None
     updated_at: OptionalDateTime = None
 
