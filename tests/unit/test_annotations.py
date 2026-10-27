@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from uuid import UUID
 
 import pytest
 
@@ -13,6 +14,14 @@ from ragnerock import (
     Operator,
     ValidationError,
 )
+
+# What the document + operator-name endpoint returns per annotation: no
+# operator or document ids, just identity, chunk, and values.
+_SCOPED_ANNOTATION = {
+    "root_id": "00000000-0000-0000-0000-000000000502",
+    "chunk_id": None,
+    "data": {"total": 5},
+}
 
 
 class TestGet:
@@ -226,8 +235,25 @@ class TestParentNavigation:
     def test_document_list_annotations_by_operator_object(
         self, httpx_mock, session, payloads
     ):
+        # Routed by name: only that endpoint returns each annotation's root_id.
         doc = Document(**payloads.document())
         op = Operator(**payloads.operator())
+        session._bind(doc)
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(
+                rf".*/api/annotations/document/{doc.id}/operator-name/{op.name}\?.*"
+            ),
+            json=payloads.list_envelope("annotations", [_SCOPED_ANNOTATION]),
+        )
+        anns = doc.list(Annotation, operator=op).all()
+        assert [a.root_id for a in anns] == [UUID(_SCOPED_ANNOTATION["root_id"])]
+
+    def test_document_list_annotations_by_unnamed_operator_uses_id(
+        self, httpx_mock, session, payloads
+    ):
+        doc = Document(**payloads.document())
+        op = Operator(**payloads.operator(name=None))
         session._bind(doc)
         httpx_mock.add_response(
             method="GET",
@@ -256,6 +282,38 @@ class TestParentNavigation:
         self, httpx_mock, session, payloads
     ):
         op = Operator(**payloads.operator())
+        session._bind(op)
+        doc_id = "00000000-0000-0000-0000-000000000101"
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(
+                rf".*/api/annotations/document/{doc_id}/operator-name/{op.name}\?.*"
+            ),
+            json=payloads.list_envelope("annotations", [_SCOPED_ANNOTATION]),
+        )
+        anns = op.list(Annotation, document=doc_id).all()
+        assert [a.root_id for a in anns] == [UUID(_SCOPED_ANNOTATION["root_id"])]
+
+    def test_operator_list_annotations_by_document_object(
+        self, httpx_mock, session, payloads
+    ):
+        op = Operator(**payloads.operator())
+        doc = Document(**payloads.document())
+        session._bind(op)
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(
+                rf".*/api/annotations/document/{doc.id}/operator-name/{op.name}\?.*"
+            ),
+            json=payloads.list_envelope("annotations", [_SCOPED_ANNOTATION]),
+        )
+        anns = op.list(Annotation, document=doc).all()
+        assert [a.root_id for a in anns] == [UUID(_SCOPED_ANNOTATION["root_id"])]
+
+    def test_unnamed_operator_list_annotations_by_document_uses_id(
+        self, httpx_mock, session, payloads
+    ):
+        op = Operator(**payloads.operator(name=None))
         session._bind(op)
         doc_id = "00000000-0000-0000-0000-000000000101"
         httpx_mock.add_response(

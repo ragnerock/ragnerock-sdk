@@ -15,7 +15,8 @@ class AnnotationResponse(_ApiModel):
     """Response payload representing a single annotation.
 
     ``root_id`` and ``operator_id`` are optional because the server omits them
-    from the narrow-scope list endpoints (list by document + operator). The
+    from the narrow-scope list endpoints (list by document + operator; only
+    the by-name form returns ``root_id``). The
     compact list endpoints (by document, chunk, or operator) carry identity,
     ``operator_name``, and ``confidence_score`` but no ``data``; fetch the
     annotation by ``root_id``, or use a hydrated listing, for the values.
@@ -503,7 +504,9 @@ class _AnnotationsSection(_Section):
         Calls
         ``GET /api/annotations/document/{document_id}/operator/{operator_id}``.
         The narrow-scope form of :meth:`list_by_document` when you already
-        have the operator's id.
+        have the operator's id. Items carry only ``chunk_id`` and ``data``,
+        not ``root_id``; to update or delete what you list, use
+        :meth:`list_by_document_and_operator_name`, which includes it.
 
         Args:
             document_id (UUID): Document to scope to.
