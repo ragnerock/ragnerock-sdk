@@ -68,7 +68,9 @@ class Annotation(_Resource):
             RuntimeError: If the annotation is not bound to a session.
         """
         if self._session is None:
-            raise RuntimeError(f"Annotation is not bound to a session; cannot fetch {what}.")
+            raise RuntimeError(
+                f"Annotation is not bound to a session; cannot fetch {what}."
+            )
         return self._session
 
     @property

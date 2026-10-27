@@ -231,7 +231,9 @@ class TestParentNavigation:
         session._bind(doc)
         httpx_mock.add_response(
             method="GET",
-            url=re.compile(rf".*/api/annotations/document/{doc.id}/operator/{op.id}\?.*"),
+            url=re.compile(
+                rf".*/api/annotations/document/{doc.id}/operator/{op.id}\?.*"
+            ),
             json=payloads.list_envelope("annotations", [payloads.annotation()]),
         )
         assert len(doc.list(Annotation, operator=op).all()) == 1
@@ -243,7 +245,9 @@ class TestParentNavigation:
         session._bind(doc)
         httpx_mock.add_response(
             method="GET",
-            url=re.compile(r".*/api/annotations/document/.*/operator-name/invoice_extract\?.*"),
+            url=re.compile(
+                r".*/api/annotations/document/.*/operator-name/invoice_extract\?.*"
+            ),
             json=payloads.list_envelope("annotations", [payloads.annotation()]),
         )
         assert len(doc.list(Annotation, operator="invoice_extract").all()) == 1
@@ -256,7 +260,9 @@ class TestParentNavigation:
         doc_id = "00000000-0000-0000-0000-000000000101"
         httpx_mock.add_response(
             method="GET",
-            url=re.compile(rf".*/api/annotations/document/{doc_id}/operator/{op.id}\?.*"),
+            url=re.compile(
+                rf".*/api/annotations/document/{doc_id}/operator/{op.id}\?.*"
+            ),
             json=payloads.list_envelope("annotations", [payloads.annotation()]),
         )
         assert len(op.list(Annotation, document=doc_id).all()) == 1
