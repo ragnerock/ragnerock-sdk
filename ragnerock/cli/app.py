@@ -14,7 +14,7 @@ from ragnerock.cli.commands.version import version_cmd
 app = typer.Typer(
     name="ragnerock",
     help=(
-        "kubectl-style CLI for the Ragnerock SDK. "
+        "CLI for the Ragnerock SDK. "
         "Inspect resources, apply GitOps manifests, and run workflows."
     ),
     no_args_is_help=True,
