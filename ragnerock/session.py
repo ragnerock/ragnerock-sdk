@@ -465,7 +465,8 @@ class Session:
           or ``operator_id=``. ``operator_id=`` additionally accepts
           ``hydrated=True`` to fetch annotations with operator metadata
           joined server-side, and pairing ``document_id=`` with either
-          ``operator_id=`` or ``operator_name=`` narrows the scope further.
+          ``operator_id=`` or ``operator_name=`` narrows the scope further
+          (only ``operator_name=`` returns each annotation's ``root_id``).
         - ``Job``: accepts an optional ``status=`` of a single
           :class:`JobStatus` (or an iterable of them).
         - ``Document``, ``DocumentGroup``, ``Operator``, ``Workflow``: no
@@ -1454,7 +1455,9 @@ class Session:
             if resource_type is Annotation:
                 operator = kwargs.get("operator")
                 if isinstance(operator, Operator):
-                    if operator.id is not None:
+                    # By name where possible: the operator-id endpoint omits
+                    # each annotation's root_id.
+                    if operator.name is None:
                         return self.list(  # type: ignore[return-value]
                             Annotation, document_id=parent.id, operator_id=operator.id
                         )
@@ -1497,7 +1500,8 @@ class Session:
                 doc = kwargs.get("document")
                 if doc is not None:
                     doc_id = doc.id if isinstance(doc, Document) else _as_uuid(doc)
-                    if parent.id is not None:
+                    # By name where possible, as for Document → Annotation.
+                    if parent.name is None:
                         return self.list(  # type: ignore[return-value]
                             Annotation, document_id=doc_id, operator_id=parent.id
                         )
