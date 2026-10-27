@@ -8,10 +8,20 @@ from ragnerock.client._base import _ApiModel, _Section
 
 
 class ProjectResponse(_ApiModel):
-    """Response payload representing a single project."""
+    """Response payload representing a single project.
+
+    List responses carry a compact item shape that adds ``account_id`` and
+    ``owner_email`` but omits the auto-archive setting; fetch the project by
+    id for the full record.
+    """
 
     id: UUID
     name: str
+    description: str | None = None
+    owner_id: UUID | None = None
+    owner_email: str | None = None
+    account_id: UUID | None = None
+    auto_archive_succeeded_jobs_after_days: int | None = None
 
 
 class ProjectListResponse(_ApiModel):
@@ -25,6 +35,23 @@ class ProjectListResponse(_ApiModel):
 
 class _ProjectsSection(_Section):
     """Project lookup endpoints."""
+
+    def list(self, *, skip: int = 0, limit: int = 100) -> ProjectListResponse:
+        """List the projects the caller can access.
+
+        Calls ``GET /api/projects/``.
+
+        Args:
+            skip (int): Offset into the result set.
+            limit (int): Maximum number of results per page.
+
+        Returns:
+            ProjectListResponse: A page of projects.
+        """
+        response = self._parent._request(
+            "GET", "/api/projects/", params={"skip": skip, "limit": limit}
+        )
+        return ProjectListResponse.model_validate(response.json())
 
     def get(self, project_id: UUID) -> ProjectResponse:
         """Fetch a project by id.

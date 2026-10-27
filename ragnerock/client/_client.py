@@ -10,6 +10,28 @@ from typing import Any
 import httpx
 
 from ragnerock.client._base import _drop_none, _parse_retry_after
+from ragnerock.client.skills import _SkillsSection
+from ragnerock.client.tools import _ToolsSection
+from ragnerock.client.assignments import _AssignmentsSection
+from ragnerock.client.notebooks import (
+    _ArtifactsSection,
+    _CellsSection,
+    _NotebooksSection,
+)
+from ragnerock.client.search import _SearchSection
+from ragnerock.client.workflow_artifacts import _WorkflowArtifactsSection
+from ragnerock.client.endpoints import _EndpointsSection
+from ragnerock.client.ingest import _IngestSourcesSection
+from ragnerock.client.ai_configs import (
+    _AIConfigsSection,
+    _EmbeddingConfigSection,
+    _ImageSummaryConfigSection,
+)
+from ragnerock.client.storage_configs import (
+    _BlobConfigsSection,
+    _DatabaseConfigsSection,
+)
+from ragnerock.client.web_access import _WebAccessSection
 from ragnerock.client.annotations import _AnnotationsSection
 from ragnerock.client.auth import _AuthSection
 from ragnerock.client.chunks import _ChunksSection
@@ -83,7 +105,12 @@ class RagnerockClient:
         """
         self._host = host.rstrip("/")
         self._auth_token = auth_token
-        self._client = httpx.Client(base_url=self._host, timeout=timeout)
+        # Follow redirects (e.g. a trailing-slash redirect, or artifact content
+        # served from storage). httpx drops the Authorization header when a
+        # redirect leaves the API's origin.
+        self._client = httpx.Client(
+            base_url=self._host, timeout=timeout, follow_redirects=True
+        )
         self._max_rate_limit_retries = max_rate_limit_retries
         self._rate_limit_backoff = rate_limit_backoff
         if auth_token is not None:
@@ -399,6 +426,94 @@ class RagnerockClient:
     def queries(self) -> _QueriesSection:
         """Endpoints for annotation SQL queries and saved queries."""
         return _QueriesSection(self)
+
+    # -- agents and tools -------------------------------------------------------
+
+    @property
+    def skills(self) -> _SkillsSection:
+        """Endpoints for skills agents load on demand (``/api/skills/...``)."""
+        return _SkillsSection(self)
+
+    @property
+    def tools(self) -> _ToolsSection:
+        """Endpoints for agent tools: MCP, connectors, REST (``/api/agent-tools/...``)."""
+        return _ToolsSection(self)
+
+    @property
+    def assignments(self) -> _AssignmentsSection:
+        """Endpoints for agent assignments and agent questions."""
+        return _AssignmentsSection(self)
+
+    @property
+    def notebooks(self) -> _NotebooksSection:
+        """Endpoints for notebooks and agent conversations (``/api/notebooks/...``)."""
+        return _NotebooksSection(self)
+
+    @property
+    def cells(self) -> _CellsSection:
+        """Endpoints for notebook cells."""
+        return _CellsSection(self)
+
+    @property
+    def artifacts(self) -> _ArtifactsSection:
+        """Endpoints for notebook and conversation artifacts (``/api/artifacts/...``)."""
+        return _ArtifactsSection(self)
+
+    # -- search, outputs, and serving -------------------------------------------
+
+    @property
+    def search(self) -> _SearchSection:
+        """Endpoint for searching a project (``/api/search``)."""
+        return _SearchSection(self)
+
+    @property
+    def workflow_artifacts(self) -> _WorkflowArtifactsSection:
+        """Endpoints for files produced by workflow outputs."""
+        return _WorkflowArtifactsSection(self)
+
+    @property
+    def endpoints(self) -> _EndpointsSection:
+        """Endpoints for deployed workflow and model-compatibility endpoints."""
+        return _EndpointsSection(self)
+
+    # -- ingestion --------------------------------------------------------------
+
+    @property
+    def ingest_sources(self) -> _IngestSourcesSection:
+        """Endpoints for ingest sources, configs, and runs (``/ingest/...``)."""
+        return _IngestSourcesSection(self)
+
+    # -- provider configuration -------------------------------------------------
+
+    @property
+    def ai_configs(self) -> _AIConfigsSection:
+        """Endpoints for bring-your-own AI provider configs (``/api/ai-configs/...``)."""
+        return _AIConfigsSection(self)
+
+    @property
+    def embedding_config(self) -> _EmbeddingConfigSection:
+        """Endpoints for the account's embedding provider (``/api/embedding-config``)."""
+        return _EmbeddingConfigSection(self)
+
+    @property
+    def image_summary_config(self) -> _ImageSummaryConfigSection:
+        """Endpoints for the account's image-summary provider (``/api/image-summary-config``)."""
+        return _ImageSummaryConfigSection(self)
+
+    @property
+    def db_configs(self) -> _DatabaseConfigsSection:
+        """Endpoints for bring-your-own database configs (``/api/db-configs/...``)."""
+        return _DatabaseConfigsSection(self)
+
+    @property
+    def blob_configs(self) -> _BlobConfigsSection:
+        """Endpoints for bring-your-own blob storage configs (``/api/blob-configs/...``)."""
+        return _BlobConfigsSection(self)
+
+    @property
+    def web_access(self) -> _WebAccessSection:
+        """Endpoints for the web access policy and search provider (``/api/web-access/...``)."""
+        return _WebAccessSection(self)
 
     # -- configuration as code ----------------------------------------------
 

@@ -713,7 +713,9 @@ class Session:
             "Annotation list requires one of document_id=, chunk_id=, or operator_id="
         )
 
-    def query(self, sql: str, *, limit: int = 1000) -> QueryResult:
+    def query(
+        self, sql: str, *, limit: int = 1000, include_provenance: bool = False
+    ) -> QueryResult:
         """Execute a SQL query against this project's annotations.
 
         Each committed operator becomes a table in the query namespace (keyed
@@ -722,7 +724,11 @@ class Session:
         Args:
             sql (str): The SQL query to run.
             limit (int): Maximum number of rows to return. Applied
-                server-side.
+                server-side; :attr:`QueryResult.truncated` reports whether
+                more rows matched.
+            include_provenance (bool): Also return, for each row, the
+                documents, chunks, or annotations it was derived from (on
+                :attr:`QueryResult.provenance`).
 
         Returns:
             QueryResult: A :class:`QueryResult` with column names, rows, and
@@ -738,12 +744,15 @@ class Session:
             query=sql,
             format="dataframe",
             limit=limit,
+            include_provenance=include_provenance,
         )
         return QueryResult(
             columns=response.columns,
             data=response.data,
             row_count=response.row_count,
             query_time_ms=response.query_time_ms,
+            truncated=response.truncated,
+            provenance=response.provenance,
         )
 
     def run(self, workflow: Workflow, *, documents: list[Document]) -> Job:
@@ -1415,11 +1424,13 @@ class Session:
         Supported navigations:
 
         - :class:`Document` → :class:`Chunk`, :class:`Page`,
-          :class:`Annotation` (optional ``operator_name=``)
+          :class:`Annotation` (optional ``operator=`` an :class:`Operator` or
+          name, or ``operator_name=``)
         - :class:`Chunk` → :class:`Annotation`
         - :class:`DocumentGroup` → :class:`Document`
-        - :class:`Operator` → :class:`Annotation` (optional ``document=``
-          to scope, ``hydrated=True`` for joined operator metadata)
+        - :class:`Operator` → :class:`Annotation` (optional ``document=`` a
+          :class:`Document` or id to scope, ``hydrated=True`` for joined
+          operator metadata)
 
         Args:
             parent (_Resource): The resource to navigate from.
@@ -1441,7 +1452,14 @@ class Session:
             if resource_type is Page:
                 return self.list(Page, document_id=parent.id)  # type: ignore[return-value]
             if resource_type is Annotation:
-                operator_name = kwargs.get("operator_name")
+                operator = kwargs.get("operator")
+                if isinstance(operator, Operator):
+                    if operator.id is not None:
+                        return self.list(  # type: ignore[return-value]
+                            Annotation, document_id=parent.id, operator_id=operator.id
+                        )
+                    operator = operator.name
+                operator_name = kwargs.get("operator_name") or operator
                 if operator_name is not None:
                     return self.list(  # type: ignore[return-value]
                         Annotation,
@@ -1478,9 +1496,14 @@ class Session:
             if resource_type is Annotation:
                 doc = kwargs.get("document")
                 if doc is not None:
+                    doc_id = doc.id if isinstance(doc, Document) else _as_uuid(doc)
+                    if parent.id is not None:
+                        return self.list(  # type: ignore[return-value]
+                            Annotation, document_id=doc_id, operator_id=parent.id
+                        )
                     return self.list(  # type: ignore[return-value]
                         Annotation,
-                        document_id=doc.id,
+                        document_id=doc_id,
                         operator_name=parent.name,
                     )
                 hydrated = kwargs.get("hydrated", False)

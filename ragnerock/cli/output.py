@@ -8,11 +8,11 @@ from enum import Enum
 from typing import IO, Any
 
 import yaml
+from pydantic import BaseModel
 from rich.console import Console
 from rich.table import Table
 
 from ragnerock.cli.resources import KindSpec, resource_name
-from ragnerock.resources.base import _Resource
 
 
 class OutputFormat(str, Enum):
@@ -25,7 +25,7 @@ class OutputFormat(str, Enum):
 
 
 def render(
-    items: list[_Resource],
+    items: list[BaseModel],
     spec: KindSpec,
     fmt: OutputFormat,
     *,
@@ -34,7 +34,7 @@ def render(
     """Write ``items`` to ``stream`` in the requested format.
 
     Args:
-        items (list[_Resource]): Resources of the same kind.
+        items (list[BaseModel]): Resources of the same kind.
         spec (KindSpec): Kind metadata (used for column layout + YAML kind field).
         fmt (OutputFormat): Desired output format.
         stream (IO[str] | None): Where to write. Defaults to ``sys.stdout``.
@@ -51,14 +51,14 @@ def render(
         _render_name(items, out)
 
 
-def _render_table(items: list[_Resource], spec: KindSpec, stream: IO[str]) -> None:
+def _render_table(items: list[BaseModel], spec: KindSpec, stream: IO[str]) -> None:
     """Render a Rich table using ``spec.list_columns``.
 
     Empty result sets emit a ``"No <kind> resources found."`` line instead
     of a headers-only table, since a blank table is visually confusing.
 
     Args:
-        items (list[_Resource]): Resources to display.
+        items (list[BaseModel]): Resources to display.
         spec (KindSpec): Kind metadata; ``list_columns`` drives column layout.
         stream (IO[str]): Destination stream. Terminal detection is based on
             this stream's ``isatty()``.
@@ -100,14 +100,14 @@ def _cell(value: Any) -> str:
     return str(value)
 
 
-def _render_json(items: list[_Resource], stream: IO[str]) -> None:
+def _render_json(items: list[BaseModel], stream: IO[str]) -> None:
     """Render resources as a JSON array of ``model_dump(mode='json')`` outputs.
 
     ``default=str`` is used so stray UUIDs or datetimes that slip through
     pydantic's JSON mode still serialize cleanly rather than raising.
 
     Args:
-        items (list[_Resource]): Resources to serialize.
+        items (list[BaseModel]): Resources to serialize.
         stream (IO[str]): Destination stream; the array is followed by a
             trailing newline.
     """
@@ -116,7 +116,7 @@ def _render_json(items: list[_Resource], stream: IO[str]) -> None:
     stream.write("\n")
 
 
-def _render_yaml(items: list[_Resource], spec: KindSpec, stream: IO[str]) -> None:
+def _render_yaml(items: list[BaseModel], spec: KindSpec, stream: IO[str]) -> None:
     """Render resources as YAML: one document per resource.
 
     Each document is the resource's JSON-mode field dump. A single item
@@ -125,7 +125,7 @@ def _render_yaml(items: list[_Resource], spec: KindSpec, stream: IO[str]) -> Non
     ``ragnerock apply``.)
 
     Args:
-        items (list[_Resource]): Resources to serialize.
+        items (list[BaseModel]): Resources to serialize.
         spec (KindSpec): Kind metadata (unused; kept for a uniform signature).
         stream (IO[str]): Destination stream.
     """
@@ -136,7 +136,7 @@ def _render_yaml(items: list[_Resource], spec: KindSpec, stream: IO[str]) -> Non
         yaml.safe_dump_all(documents, stream, sort_keys=False)
 
 
-def _render_name(items: list[_Resource], stream: IO[str]) -> None:
+def _render_name(items: list[BaseModel], stream: IO[str]) -> None:
     """Render one display name (or id) per line.
 
     Resources without a usable name — :func:`resource_name` returns an empty
@@ -144,7 +144,7 @@ def _render_name(items: list[_Resource], stream: IO[str]) -> None:
     tools like ``xargs`` don't trip on them.
 
     Args:
-        items (list[_Resource]): Resources to name.
+        items (list[BaseModel]): Resources to name.
         stream (IO[str]): Destination stream.
     """
     for item in items:

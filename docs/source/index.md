@@ -60,7 +60,9 @@ documents
 errors
 gitops.md
 jobs
+migration.md
 operators
+platform.md
 queries
 sessions
 workflows

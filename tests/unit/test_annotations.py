@@ -222,3 +222,77 @@ class TestParentNavigation:
             json=payloads.list_envelope("annotations", [payloads.annotation()]),
         )
         assert len(op.list(Annotation).all()) == 1
+
+    def test_document_list_annotations_by_operator_object(
+        self, httpx_mock, session, payloads
+    ):
+        doc = Document(**payloads.document())
+        op = Operator(**payloads.operator())
+        session._bind(doc)
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(rf".*/api/annotations/document/{doc.id}/operator/{op.id}\?.*"),
+            json=payloads.list_envelope("annotations", [payloads.annotation()]),
+        )
+        assert len(doc.list(Annotation, operator=op).all()) == 1
+
+    def test_document_list_annotations_by_operator_name(
+        self, httpx_mock, session, payloads
+    ):
+        doc = Document(**payloads.document())
+        session._bind(doc)
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(r".*/api/annotations/document/.*/operator-name/invoice_extract\?.*"),
+            json=payloads.list_envelope("annotations", [payloads.annotation()]),
+        )
+        assert len(doc.list(Annotation, operator="invoice_extract").all()) == 1
+
+    def test_operator_list_annotations_scoped_by_document_id(
+        self, httpx_mock, session, payloads
+    ):
+        op = Operator(**payloads.operator())
+        session._bind(op)
+        doc_id = "00000000-0000-0000-0000-000000000101"
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(rf".*/api/annotations/document/{doc_id}/operator/{op.id}\?.*"),
+            json=payloads.list_envelope("annotations", [payloads.annotation()]),
+        )
+        assert len(op.list(Annotation, document=doc_id).all()) == 1
+
+
+class TestLazyNavigation:
+    def test_document_and_operator_are_fetched_on_access(
+        self, httpx_mock, session, payloads
+    ):
+        anno = Annotation(**payloads.annotation())
+        session._bind(anno)
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(rf".*/api/documents/{anno.document_id}$"),
+            json=payloads.document(),
+        )
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(rf".*/api/operators/{anno.operator_id}$"),
+            json=payloads.operator(),
+        )
+        document = anno.document
+        operator = anno.operator
+        assert document is not None and document.name == "sample.pdf"
+        assert operator is not None and operator.name == "invoice_extract"
+
+    def test_unset_targets_return_none_without_a_request(
+        self, httpx_mock, session, payloads
+    ):
+        anno = Annotation(**payloads.annotation())
+        session._bind(anno)
+        before = len(httpx_mock.get_requests())
+        assert anno.chunk is None
+        assert anno.page is None
+        assert len(httpx_mock.get_requests()) == before
+
+    def test_unbound_annotation_raises(self, payloads):
+        with pytest.raises(RuntimeError):
+            _ = Annotation(**payloads.annotation()).document

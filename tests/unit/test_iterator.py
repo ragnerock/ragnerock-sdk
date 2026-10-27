@@ -34,6 +34,17 @@ class TestPaginatedIteratorUnit:
         capped = it.limit(4).all()
         assert capped == [0, 1, 2, 3]
 
+    def test_limit_requests_only_what_it_needs(self):
+        calls: list[tuple[int, int]] = []
+
+        def fetch(skip: int, limit: int) -> PageResult[int]:
+            calls.append((skip, limit))
+            return PageResult(list(range(skip, skip + limit)), 1000)
+
+        it: PaginatedIterator[int] = PaginatedIterator(fetch, page_size=4)
+        assert it.limit(6).all() == [0, 1, 2, 3, 4, 5]
+        assert calls == [(0, 4), (4, 2)]
+
     def test_first_only_fetches_one(self):
         calls: list[tuple[int, int]] = []
 

@@ -182,6 +182,29 @@ ragnerock version
 | `Page`          | `page`, `pages`                                             | Read-only. Requires `--filter document=...`; no name lookup. |
 | `Job`           | `job`, `jobs`                                               | Read-only. Created via `ragnerock run`. |
 
+Read-only kinds for the rest of the platform. Look them up by name (or `title`, `config_name`, `file_name`, `slug`) or by id; manage them with [GitOps manifests](gitops.md) or the [Platform APIs](platform.md).
+
+| CLI name | Aliases | Scope |
+| --- | --- | --- |
+| `Project` | `project`, `projects`, `proj` | account |
+| `Skill` | `skill`, `skills` | project |
+| `Tool` | `tool`, `tools`, `agent-tool`, `agent-tools` | project |
+| `Endpoint` | `endpoint`, `endpoints`, `ep`, `eps` | project |
+| `Notebook` | `notebook`, `notebooks`, `nb`, `nbs` | project |
+| `SavedQuery` | `saved-query`, `saved-queries`, `sq` | project |
+| `WorkflowArtifact` | `artifact`, `artifacts`, `workflow-artifact`, `workflow-artifacts` | project |
+| `IngestSource` | `ingest-source`, `ingest-sources` | project |
+| `IngestConfig` | `ingest-config`, `ingest-configs` | project |
+| `AIConfig` | `ai-config`, `ai-configs` | account |
+| `DBConfig` | `db-config`, `db-configs` | account |
+| `BlobConfig` | `blob-config`, `blob-configs` | account |
+
+```bash
+ragnerock get endpoints
+ragnerock describe skill earnings_call_tone
+ragnerock get ai-configs -o json
+```
+
 Matching is case-insensitive.
 
 ## Exit codes

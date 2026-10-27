@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from ragnerock.resources.base import OptionalDateTime, _Resource
+
+if TYPE_CHECKING:
+    from ragnerock.resources.chunk import Chunk
+    from ragnerock.resources.document import Document
+    from ragnerock.resources.operator import Operator
+    from ragnerock.resources.page import Page
 
 
 class Annotation(_Resource):
@@ -48,3 +54,87 @@ class Annotation(_Resource):
             persisted.
         """
         return self.root_id
+
+    def _require_session(self, what: str) -> Any:
+        """Return the bound session, or raise if there is none.
+
+        Args:
+            what (str): The thing being fetched, for the error message.
+
+        Returns:
+            Any: The bound session.
+
+        Raises:
+            RuntimeError: If the annotation is not bound to a session.
+        """
+        if self._session is None:
+            raise RuntimeError(f"Annotation is not bound to a session; cannot fetch {what}.")
+        return self._session
+
+    @property
+    def document(self) -> Document | None:
+        """The document this annotation belongs to, fetched on access.
+
+        Returns:
+            Document | None: The document, or ``None`` if ``document_id`` is
+            unset or the document no longer exists.
+
+        Raises:
+            RuntimeError: If the annotation is not bound to a session.
+        """
+        from ragnerock.resources.document import Document
+
+        if self.document_id is None:
+            return None
+        return self._require_session("its document").get(Document, id=self.document_id)
+
+    @property
+    def chunk(self) -> Chunk | None:
+        """The chunk this annotation is attached to, fetched on access.
+
+        Returns:
+            Chunk | None: The chunk, or ``None`` for annotations not attached
+            to a chunk.
+
+        Raises:
+            RuntimeError: If the annotation is not bound to a session.
+        """
+        from ragnerock.resources.chunk import Chunk
+
+        if self.chunk_id is None:
+            return None
+        return self._require_session("its chunk").get(Chunk, id=self.chunk_id)
+
+    @property
+    def page(self) -> Page | None:
+        """The page this annotation is attached to, fetched on access.
+
+        Returns:
+            Page | None: The page, or ``None`` for annotations not attached
+            to a page.
+
+        Raises:
+            RuntimeError: If the annotation is not bound to a session.
+        """
+        from ragnerock.resources.page import Page
+
+        if self.page_id is None:
+            return None
+        return self._require_session("its page").get(Page, id=self.page_id)
+
+    @property
+    def operator(self) -> Operator | None:
+        """The operator that produced this annotation, fetched on access.
+
+        Returns:
+            Operator | None: The operator, or ``None`` if ``operator_id`` is
+            unset or the operator no longer exists.
+
+        Raises:
+            RuntimeError: If the annotation is not bound to a session.
+        """
+        from ragnerock.resources.operator import Operator
+
+        if self.operator_id is None:
+            return None
+        return self._require_session("its operator").get(Operator, id=self.operator_id)

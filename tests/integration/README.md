@@ -18,6 +18,7 @@ One file per resource area, each exercising a full round-trip flow:
 - [test_errors.py](test_errors.py) — error hierarchy, 404 and 422 mappings
 - [test_transactions.py](test_transactions.py) — commit ordering, rollback, refresh, CommitError
 - [test_pagination.py](test_pagination.py) — lazy iteration, `limit`, `first`, `all`
+- [test_gitops.py](test_gitops.py) — GitOps apply in plan mode (rolled back server-side), sealing-key fingerprint, sealed secrets
 
 ## Configuration
 

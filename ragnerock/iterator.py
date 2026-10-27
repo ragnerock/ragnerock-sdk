@@ -78,6 +78,9 @@ class PaginatedIterator(Generic[T]):
     def limit(self, n: int) -> PaginatedIterator[T]:
         """Return a fresh iterator that yields at most ``n`` items.
 
+        Pages are requested no larger than needed, so ``limit(5)`` asks the
+        server for five items rather than a full page.
+
         Args:
             n (int): Maximum number of items the new iterator will yield.
 
@@ -140,10 +143,13 @@ class PaginatedIterator(Generic[T]):
             if self._total is not None and self._skip >= self._total:
                 raise StopIteration
 
-            page = self._fetch_page(self._skip, self._page_size)
+            size = self._page_size
+            if self._limit is not None:
+                size = min(size, self._limit - self._yielded)
+            page = self._fetch_page(self._skip, size)
             self._total = page.total
             self._buffer = list(page.items)
-            self._skip += len(page.items) if page.items else self._page_size
+            self._skip += len(page.items) if page.items else size
 
             if not page.items:
                 self._exhausted = True

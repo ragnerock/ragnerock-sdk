@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 
 import pytest
@@ -83,3 +84,31 @@ class TestQueryResult:
         assert isinstance(df, pd.DataFrame)
         assert list(df.columns) == ["vendor", "total"]
         assert df.iloc[0]["vendor"] == "Acme"
+
+    def test_repr_omits_unknown_timing(self):
+        from ragnerock import QueryResult
+
+        result = QueryResult(columns=["a"], data=[], row_count=0)
+        assert "query_time_ms" not in repr(result)
+
+    def test_repr_flags_truncation(self):
+        from ragnerock import QueryResult
+
+        result = QueryResult(columns=["a"], data=[], row_count=0, truncated=True)
+        assert "truncated=True" in repr(result)
+
+
+class TestTruncationAndProvenance:
+    def test_truncated_and_provenance_are_surfaced(self, httpx_mock, session, payloads):
+        httpx_mock.add_response(
+            method="POST",
+            url=re.compile(r".*/api/query/projects/.*/query$"),
+            json=payloads.query_result(
+                truncated=True, provenance=[{"document_id": "d1"}]
+            ),
+        )
+        result = session.query("SELECT * FROM t", include_provenance=True)
+        assert result.truncated is True
+        assert result.provenance == [{"document_id": "d1"}]
+        body = json.loads(httpx_mock.get_requests()[-1].content)
+        assert body["include_provenance"] is True

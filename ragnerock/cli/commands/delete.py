@@ -27,36 +27,47 @@ def delete_cmd(
     except UnknownKindError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(code=1) from e
+    _require_deletable(spec)
 
     with open_session() as session:
         _delete_one(session, spec, name)
 
 
+def _require_deletable(spec: KindSpec) -> None:
+    """Exit with code 1 unless ``delete <kind> <name>`` supports this kind.
+
+    Annotations need an id, chunks and pages are server-managed, and the
+    remaining kinds are read-only in the CLI.
+
+    Args:
+        spec (KindSpec): The resolved kind.
+
+    Raises:
+        typer.Exit: With code 1 if the kind is not deletable by name.
+    """
+    if spec.deletable and spec.cls is not None:
+        return
+    supported = ", ".join(s.kind for s in all_kinds() if s.deletable)
+    typer.echo(
+        f"{spec.kind} does not support name-based delete in the CLI "
+        f"(supported: {supported}).",
+        err=True,
+    )
+    raise typer.Exit(code=1)
+
+
 def _delete_one(session: Session, spec: KindSpec, name: str) -> None:
     """Delete a single resource by kind and name.
 
-    Only kinds marked ``deletable`` are accepted: annotations need an id,
-    chunks and pages are server-managed, and the remaining kinds are
-    read-only in the CLI.
-
     Args:
         session (Session): Open session used to look up and stage the delete.
-        spec (KindSpec): Resource kind resolved from the CLI argument.
+        spec (KindSpec): A deletable resource kind.
         name (str): Name of the resource to delete.
 
     Raises:
-        typer.Exit: Exits with code 1 if the kind is not delete-by-name, or
-            if no resource with that name exists.
+        typer.Exit: Exits with code 1 if no resource with that name exists.
     """
-    if not spec.deletable or spec.cls is None:
-        supported = ", ".join(s.kind for s in all_kinds() if s.deletable)
-        typer.echo(
-            f"{spec.kind} does not support name-based delete in the CLI "
-            f"(supported: {supported}).",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-
+    assert spec.cls is not None
     resource = session.get(spec.cls, name=name)
     if resource is None:
         typer.echo(f"{spec.kind.lower()}/{name} not found", err=True)
