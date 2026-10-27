@@ -1,6 +1,6 @@
 # Command-line interface
 
-`pip install ragnerock` installs a `ragnerock` executable — a kubectl-style CLI for inspecting resources, applying YAML manifests, and running workflows. It wraps the same [Session](sessions.md) API you'd use from Python; anything you can do from the SDK you can do from the shell.
+`pip install ragnerock` installs a `ragnerock` executable — a kubectl-style CLI for inspecting resources, applying [GitOps manifests](gitops.md), and running workflows. It wraps the same [Session](sessions.md) and [GitOps](gitops.md) APIs you'd use from Python.
 
 ## Installation
 
@@ -9,7 +9,7 @@ pip install ragnerock
 ragnerock --help
 ```
 
-The CLI ships in the main package; no extras are required.
+The CLI ships in the main package. To source GitOps secrets from a cloud secret manager, also install the matching extra (`ragnerock[gcp]`, `ragnerock[aws]`, or `ragnerock[azure]`).
 
 ## Configuration
 
@@ -18,25 +18,28 @@ The CLI reads credentials from environment variables. Two equivalent forms:
 **Full connection string**
 
 ```bash
-export RAGNEROCK_CONNECTION_STRING="ragnerock://you@example.com:pass@api.ragnerock.com/my_project"
+export RAGNEROCK_CONNECTION_STRING="ragnerock://token:rgnk_...@api.ragnerock.com/my_project"
 ```
+
+See [Connecting](connecting.md) for every connection-string form.
 
 **Split variables**
 
 | Variable | Purpose |
 |---|---|
 | `RAGNEROCK_HOST` | Host or full URL (`api.ragnerock.com` or `https://api.ragnerock.com`). Bare hosts default to `https://`. |
-| `RAGNEROCK_EMAIL` | Account email. |
+| `RAGNEROCK_API_TOKEN` | Personal API token (`rgnk_…`). Use this, or email + password. |
+| `RAGNEROCK_EMAIL` | Account email (with `RAGNEROCK_PASSWORD`). |
 | `RAGNEROCK_PASSWORD` | Account password. |
-| `RAGNEROCK_PROJECT` | Project name to scope every command to. |
+| `RAGNEROCK_PROJECT` | Project name to scope every command to. Not needed for `apply`. |
+| `RAGNEROCK_SEALING_PUBLIC_KEY` | Optional pinned key for sealing GitOps secrets (see [Sealing](gitops.md#sealing)). |
 
-`RAGNEROCK_CONNECTION_STRING` will always overwrite the split variables if set.
+`RAGNEROCK_CONNECTION_STRING` will always overwrite the split variables if set. `ragnerock apply` is account-level, so it accepts a connection string without a `/project` path, and doesn't require `RAGNEROCK_PROJECT`.
 
 ```bash
 # CI example
 export RAGNEROCK_HOST=api.ragnerock.com
-export RAGNEROCK_EMAIL="ci@example.com"
-export RAGNEROCK_PASSWORD="$RAGNEROCK_CI_PASSWORD"
+export RAGNEROCK_API_TOKEN="$RAGNEROCK_CI_TOKEN"
 export RAGNEROCK_PROJECT=ci-sandbox
 ```
 
@@ -86,37 +89,22 @@ ragnerock describe op sentiment -o json             # explicit override
 
 ### `apply`
 
-Create or update resources from a manifest
+Apply GitOps manifests
 
 ```
-ragnerock apply -f FILE [-f FILE ...]
+ragnerock apply -f PATH [-f PATH ...] [--dry-run | --plan] [--no-seal]
+  [--sealing-public-key PEM|@FILE] [-o table|json|yaml]
 ```
 
-`-f` is repeatable in the event you want to apply multiple sources. Each source may be a file path, a directory, or `-` to read from STDIN. Directory sources are walked recursively and every `*.yaml` / `*.yml` file beneath the directory is loaded in sorted order; hidden entries (dotfiles, `.git/`, …) and non-YAML files are silently skipped. Files, directories, and `-` may be freely mixed across repeated `-f` flags.
+Uploads every Ragnerock manifest (`apiVersion: ragnerock.com/...`) found across the sources in one request; the server upserts each object by name and reports what changed. Each `-f` may be a file, a directory (walked recursively for `*.yaml` / `*.yml`, skipping hidden entries), or `-` for STDIN. Non-Ragnerock YAML is ignored, so pointing `-f` at a whole repository is fine. `Secret` values are resolved locally and sealed to the instance's key before upload.
 
 ```bash
-# heredoc
-ragnerock apply -f - <<'EOF'
-apiVersion: v1
-kind: Operator
-metadata: { name: sentiment }
-spec:
-  jsonschema: { type: object, properties: { label: { type: string } } }
-  generation_prompt: "Classify..."
-  chunk_type: PARAGRAPH
-EOF
-
-# round-trip — no-op update
-ragnerock get op sentiment -o yaml | ragnerock apply -f -
-
-# multi-file
-ragnerock apply -f operators.yaml -f workflows.yaml
-
-# directory tree
-ragnerock apply -f manifests/
+ragnerock apply -f manifests/ --dry-run   # what would be uploaded (offline, values elided)
+ragnerock apply -f manifests/ --plan      # what would change (validated, then rolled back)
+ragnerock apply -f manifests/             # apply
 ```
 
-`apply` is idempotent: new resources (no existing match on `metadata.name`) are created, existing ones are updated in place. Across multi-doc manifests, documents are committed in dependency order: `DocumentGroup → Operator → Document → Workflow → Annotation`. See [Manifests](manifests.md) for the full schema.
+`apply` never deletes. Exit codes: `0` when every object applied, `1` when the report shows a failure or the manifests can't be prepared, `2` for a server or network error. See [GitOps manifests](gitops.md) for kinds, secrets, sealing, and CI usage.
 
 ### `delete`
 
@@ -124,14 +112,13 @@ Remove a resource
 
 ```
 ragnerock delete <kind> <NAME>
-ragnerock delete -f FILE [-f FILE ...]
 ```
 
-Either pass `<kind> <NAME>`, or pass one or more manifests (including `-` for STDIN) and every resource they declare is subsequently deleted by name:
+Deletes one `Document`, `DocumentGroup`, `Operator`, or `Workflow` by name:
 
 ```bash
 ragnerock delete op sentiment
-ragnerock delete -f operators.yaml
+ragnerock delete wf ingest
 ```
 
 ### `run`
@@ -202,5 +189,5 @@ Matching is case-insensitive.
 | Code | Meaning |
 |---|---|
 | 0 | Success. |
-| 1 | User / lookup error — missing env var, unknown kind, resource not found, malformed manifest. |
+| 1 | User / lookup error — missing env var, unknown kind, resource not found, invalid manifest, failed apply. |
 | 2 | Server or runtime error — failed job, timeout, unexpected API response. |

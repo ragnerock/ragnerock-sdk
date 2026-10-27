@@ -19,6 +19,11 @@ from ragnerock.client.annotations import AnnotationListResponse, AnnotationRespo
 from ragnerock.client.auth import AuthTokenResponse
 from ragnerock.client.chunks import ChunkListResponse, ChunkResponse
 from ragnerock.client.documents import DocumentListResponse, DocumentResponse
+from ragnerock.client.gitops import (
+    GitOpsApplyResponse,
+    GitOpsApplyResult,
+    SealingKeyResponse,
+)
 from ragnerock.client.groups import DocumentGroupListResponse, DocumentGroupResponse
 from ragnerock.client.jobs import (
     CreateManualJobsResponse,
@@ -48,6 +53,8 @@ __all__ = [
     "DocumentGroupResponse",
     "DocumentListResponse",
     "DocumentResponse",
+    "GitOpsApplyResponse",
+    "GitOpsApplyResult",
     "JobActionResponse",
     "JobListResponse",
     "JobResponse",
@@ -60,6 +67,7 @@ __all__ = [
     "ProjectResponse",
     "QueryResultResponse",
     "RagnerockClient",
+    "SealingKeyResponse",
     "WorkflowListResponse",
     "WorkflowNodeResponse",
     "WorkflowResponse",

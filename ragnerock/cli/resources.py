@@ -23,20 +23,20 @@ class KindSpec:
     """Per-kind CLI metadata.
 
     Attributes:
-        kind (str): Canonical name used in manifests and error messages.
+        kind (str): Canonical name used in output and error messages.
         cls (type[_Resource]): The SDK resource class this kind wraps.
         aliases (tuple[str, ...]): Alternate CLI names, all lowercase.
         list_columns (tuple[tuple[str, str], ...]): ``(header, field_name)``
             pairs for table output. ``field_name`` is read via
             :func:`getattr` on each resource.
-        writable (bool): Whether ``apply``/``delete`` accept this kind.
+        deletable (bool): Whether ``delete <kind> <name>`` accepts this kind.
     """
 
     kind: str
     cls: type[_Resource]
     aliases: tuple[str, ...] = ()
     list_columns: tuple[tuple[str, str], ...] = field(default_factory=tuple)
-    writable: bool = False
+    deletable: bool = False
 
 
 _KINDS: tuple[KindSpec, ...] = (
@@ -48,10 +48,11 @@ _KINDS: tuple[KindSpec, ...] = (
             ("NAME", "name"),
             ("ID", "id"),
             ("FILE_TYPE", "file_type"),
+            ("STATUS", "status"),
             ("GROUP", "group_id"),
             ("CREATED", "created_at"),
         ),
-        writable=True,
+        deletable=True,
     ),
     KindSpec(
         kind="DocumentGroup",
@@ -62,7 +63,7 @@ _KINDS: tuple[KindSpec, ...] = (
             ("ID", "id"),
             ("CREATED", "created_at"),
         ),
-        writable=True,
+        deletable=True,
     ),
     KindSpec(
         kind="Operator",
@@ -71,11 +72,11 @@ _KINDS: tuple[KindSpec, ...] = (
         list_columns=(
             ("NAME", "name"),
             ("ID", "id"),
+            ("KIND", "operator_kind"),
             ("CHUNK_TYPE", "chunk_type"),
-            ("BATCH_SIZE", "batch_size"),
             ("CREATED", "created_at"),
         ),
-        writable=True,
+        deletable=True,
     ),
     KindSpec(
         kind="Workflow",
@@ -88,7 +89,7 @@ _KINDS: tuple[KindSpec, ...] = (
             ("AUTO_RUN", "auto_run_on_upload"),
             ("CREATED", "created_at"),
         ),
-        writable=True,
+        deletable=True,
     ),
     KindSpec(
         kind="Annotation",
@@ -101,7 +102,6 @@ _KINDS: tuple[KindSpec, ...] = (
             ("CHUNK", "chunk_id"),
             ("CREATED", "created_at"),
         ),
-        writable=True,
     ),
     KindSpec(
         kind="Chunk",
@@ -111,8 +111,8 @@ _KINDS: tuple[KindSpec, ...] = (
             ("ID", "id"),
             ("DOCUMENT", "document_id"),
             ("TYPE", "chunk_type"),
-            ("START", "start_index"),
-            ("END", "end_index"),
+            ("OFFSET", "document_offset"),
+            ("PAGE", "page_id"),
         ),
     ),
     KindSpec(

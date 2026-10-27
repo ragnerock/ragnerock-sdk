@@ -14,6 +14,7 @@ from ragnerock.client.annotations import _AnnotationsSection
 from ragnerock.client.auth import _AuthSection
 from ragnerock.client.chunks import _ChunksSection
 from ragnerock.client.documents import _DocumentsSection
+from ragnerock.client.gitops import _GitOpsSection
 from ragnerock.client.groups import _GroupsSection
 from ragnerock.client.jobs import _JobsSection
 from ragnerock.client.operators import _OperatorsSection
@@ -398,3 +399,10 @@ class RagnerockClient:
     def queries(self) -> _QueriesSection:
         """Endpoints for annotation SQL queries and saved queries."""
         return _QueriesSection(self)
+
+    # -- configuration as code ----------------------------------------------
+
+    @property
+    def gitops(self) -> _GitOpsSection:
+        """Endpoints for GitOps apply and the secret-sealing key (``/api/gitops/...``)."""
+        return _GitOpsSection(self)

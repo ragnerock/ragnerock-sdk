@@ -11,7 +11,6 @@ import yaml
 from rich.console import Console
 from rich.table import Table
 
-from ragnerock.cli.manifest import DEFAULT_API_VERSION
 from ragnerock.cli.resources import KindSpec, resource_name
 from ragnerock.resources.base import _Resource
 
@@ -118,58 +117,23 @@ def _render_json(items: list[_Resource], stream: IO[str]) -> None:
 
 
 def _render_yaml(items: list[_Resource], spec: KindSpec, stream: IO[str]) -> None:
-    """Render resources as a YAML manifest stream.
+    """Render resources as YAML: one document per resource.
 
-    Each item is shaped into a ``{apiVersion, kind, metadata, spec}``
-    document. This is the inverse of the manifest format, so ``get -o yaml``
-    output flows back into ``apply -f -`` unchanged. A single item emits
-    one document; multiple items emit a YAML stream.
+    Each document is the resource's JSON-mode field dump. A single item
+    emits one document; multiple items emit a YAML stream. (To manage
+    configuration declaratively, write GitOps manifests and use
+    ``ragnerock apply``.)
 
     Args:
         items (list[_Resource]): Resources to serialize.
-        spec (KindSpec): Kind metadata; supplies the ``kind`` field on each
-            document.
+        spec (KindSpec): Kind metadata (unused; kept for a uniform signature).
         stream (IO[str]): Destination stream.
     """
-    documents = [_to_manifest_doc(item, spec) for item in items]
+    documents = [item.model_dump(mode="json") for item in items]
     if len(documents) == 1:
         yaml.safe_dump(documents[0], stream, sort_keys=False)
     else:
         yaml.safe_dump_all(documents, stream, sort_keys=False)
-
-
-def _to_manifest_doc(item: _Resource, spec: KindSpec) -> dict[str, Any]:
-    """Shape a resource into the ``{kind, metadata, spec}`` manifest form.
-
-    Identity fields (``name``, ``operator_name``, ``id``, ``root_id``) are
-    lifted out of the model's field dump into ``metadata``; everything else
-    stays under ``spec``. This mirrors how :mod:`ragnerock.cli.manifest`
-    parses inputs.
-
-    Args:
-        item (_Resource): Resource to shape.
-        spec (KindSpec): Kind metadata; supplies the ``kind`` label.
-
-    Returns:
-        dict[str, Any]: Manifest-shaped document ready for YAML dump.
-    """
-    data = item.model_dump(mode="json")
-
-    name = data.pop("name", None) or data.pop("operator_name", None)
-    metadata: dict[str, Any] = {}
-    if name is not None:
-        metadata["name"] = name
-
-    rid = data.pop("id", None) or data.pop("root_id", None)
-    if rid is not None:
-        metadata["id"] = rid
-
-    return {
-        "apiVersion": DEFAULT_API_VERSION,
-        "kind": spec.kind,
-        "metadata": metadata,
-        "spec": data,
-    }
 
 
 def _render_name(items: list[_Resource], stream: IO[str]) -> None:

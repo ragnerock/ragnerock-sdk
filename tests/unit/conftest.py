@@ -7,9 +7,14 @@ need a running Ragnerock server.
 
 from __future__ import annotations
 
+import base64
+from collections.abc import Callable
 from uuid import UUID
 
 import pytest
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 
 def pytest_collection_modifyitems(config, items):
@@ -318,3 +323,45 @@ class _Payloads:
         }
         base.update(overrides)
         return base
+
+
+# -- GitOps sealing ---------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def sealing_key() -> rsa.RSAPrivateKey:
+    """An RSA key pair standing in for the instance's sealing key."""
+    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+@pytest.fixture(scope="session")
+def sealing_pem(sealing_key: rsa.RSAPrivateKey) -> str:
+    """The sealing key's public half, PEM-encoded."""
+    return (
+        sealing_key.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode()
+    )
+
+
+@pytest.fixture(scope="session")
+def unseal(sealing_key: rsa.RSAPrivateKey) -> Callable[[str], str]:
+    """Open a sealed value the way the server does."""
+
+    def _unseal(blob: str) -> str:
+        prefix, version, encoded_dek, token = blob.split(".", 3)
+        assert (prefix, version) == ("rgnk-sealed", "v1")
+        dek = sealing_key.decrypt(
+            base64.urlsafe_b64decode(encoded_dek),
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None,
+            ),
+        )
+        return Fernet(dek).decrypt(token.encode()).decode()
+
+    return _unseal

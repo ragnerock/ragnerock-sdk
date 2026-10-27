@@ -69,6 +69,16 @@ class ValidationError(RagnerockError):
     """Raised when request parameters are invalid or preconditions fail."""
 
 
+class GitOpsError(RagnerockError):
+    """Raised when GitOps manifests cannot be loaded, resolved, sealed, or applied.
+
+    Covers client-side failures before anything is uploaded — unreadable or
+    invalid YAML, a malformed ``Secret`` reference, an unset environment
+    variable, an unreachable cloud secret manager, an unusable sealing key —
+    as well as an instance with no sealing key configured.
+    """
+
+
 class RateLimitError(RagnerockError):
     """Raised when the API returns HTTP 429 after retries have been exhausted.
 

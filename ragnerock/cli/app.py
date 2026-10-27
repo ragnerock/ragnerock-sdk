@@ -15,7 +15,7 @@ app = typer.Typer(
     name="ragnerock",
     help=(
         "kubectl-style CLI for the Ragnerock SDK. "
-        "Inspect resources, apply YAML manifests, and run workflows."
+        "Inspect resources, apply GitOps manifests, and run workflows."
     ),
     no_args_is_help=True,
     add_completion=False,
@@ -25,12 +25,10 @@ app.command("get", help="List resources or fetch one by name.")(get_cmd)
 app.command(
     "describe", help="Show full details of a single resource (YAML by default)."
 )(describe_cmd)
-app.command("apply", help="Create or update resources from YAML manifest files.")(
+app.command("apply", help="Apply GitOps manifests (apiVersion: ragnerock.com/...).")(
     apply_cmd
 )
-app.command("delete", help="Delete a resource by name or via manifest files.")(
-    delete_cmd
-)
+app.command("delete", help="Delete a resource by kind and name.")(delete_cmd)
 app.command("run", help="Execute a workflow against a batch of documents.")(run_cmd)
 app.command("query", help="Run a SQL query against the project's annotations.")(
     query_cmd

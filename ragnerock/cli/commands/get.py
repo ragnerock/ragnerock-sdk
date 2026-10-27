@@ -11,6 +11,8 @@ from typing import Annotated
 
 import typer
 
+from ragnerock.cli.errors import exit_code_for
+
 from ragnerock.cli.output import OutputFormat, render
 from ragnerock.cli.resources import KindSpec, UnknownKindError, resolve_kind
 from ragnerock.cli.session import open_session
@@ -165,14 +167,5 @@ def _translate_list_filters(spec: KindSpec, filters: dict[str, str]) -> dict[str
 
 
 def _exit_for(exc: Exception) -> int:
-    """Pick an exit code from an SDK exception.
-
-    1 for user/lookup errors, 2 for anything else (server/network).
-    """
-    from ragnerock.errors import NotFoundError, ValidationError
-
-    if isinstance(exc, (NotFoundError, ValidationError)):
-        typer.echo(f"{type(exc).__name__}: {exc}", err=True)
-        return 1
-    typer.echo(f"{type(exc).__name__}: {exc}", err=True)
-    return 2
+    """Pick an exit code from an SDK exception (see :mod:`ragnerock.cli.errors`)."""
+    return exit_code_for(exc)

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from ragnerock.engine import Engine, create_engine
+from ragnerock.engine import Engine, create_client, create_engine
 from ragnerock.errors import (
     AuthenticationError,
     CommitError,
+    GitOpsError,
     NotFoundError,
     QueryError,
     RagnerockError,
@@ -50,6 +51,7 @@ __all__ = [
     "DocumentStatus",
     "Engine",
     "FileType",
+    "GitOpsError",
     "Job",
     "JobStatus",
     "JobType",
@@ -70,5 +72,6 @@ __all__ = [
     "WorkflowNode",
     "WorkflowSchedule",
     "compile_condition",
+    "create_client",
     "create_engine",
 ]

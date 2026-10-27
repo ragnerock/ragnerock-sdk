@@ -1,375 +1,317 @@
-"""``ragnerock apply`` — create or update resources from manifest files."""
+"""``ragnerock apply`` — apply GitOps manifests to a Ragnerock instance."""
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+import json
+import os
+from enum import Enum
+from pathlib import Path
+from typing import Annotated
 
+import httpx
 import typer
+import yaml
+from rich.console import Console
+from rich.markup import escape
 
-from ragnerock.cli.manifest import (
-    ManifestDoc,
-    ManifestError,
-    read_manifests,
-    sort_by_apply_order,
+from ragnerock.cli.config import SEALING_PUBLIC_KEY_VAR, ConfigError, build_client
+from ragnerock.cli.errors import SERVER_ERROR, USER_ERROR, exit_code_for
+from ragnerock.client.gitops import GitOpsApplyResponse, GitOpsApplyResult
+from ragnerock.errors import GitOpsError, RagnerockError
+from ragnerock.gitops import (
+    ManifestSet,
+    PreparedManifest,
+    load_manifests,
+    prepare_manifest,
+    render_dry_run,
 )
-from ragnerock.cli.session import open_session
-from ragnerock.errors import ValidationError
-from ragnerock.resources import (
-    Annotation,
-    ChunkType,
-    Document,
-    DocumentGroup,
-    FileType,
-    Operator,
-    Workflow,
-    WorkflowNode,
-)
-from ragnerock.resources.base import _Resource
-from ragnerock.resources.condition import compile_condition
-from ragnerock.session import Session
+
+_ACTION_STYLES = {
+    "created": "green",
+    "updated": "blue",
+    "unchanged": "bright_black",
+    "error": "red",
+}
+
+
+class ApplyOutput(str, Enum):
+    """Supported ``-o/--output`` values for ``apply``."""
+
+    TABLE = "table"
+    JSON = "json"
+    YAML = "yaml"
 
 
 def apply_cmd(
     files: Annotated[
-        list[str] | None,
+        list[str],
         typer.Option(
             "--file",
             "-f",
             help=(
-                "Manifest source. Repeatable. Accepts a file path, a "
-                "directory (recursively loads every '*.yaml' / '*.yml' file "
-                "beneath it in sorted order; hidden and non-YAML entries are "
-                "skipped), or '-' to read a YAML stream from STDIN "
-                "(supports heredocs and pipes)."
+                "Manifest file, directory (walked recursively for '*.yaml' / "
+                "'*.yml'), or '-' for STDIN. Repeatable; every source is "
+                "uploaded together."
+            ),
+        ),
+    ],
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help=(
+                "Print the manifest that would be uploaded, with secret values "
+                "elided, without contacting the server or any cloud provider."
+            ),
+        ),
+    ] = False,
+    plan: Annotated[
+        bool,
+        typer.Option(
+            "--plan",
+            help=(
+                "Upload and report what would change, then have the server "
+                "roll it all back. Validates against the real account."
+            ),
+        ),
+    ] = False,
+    no_seal: Annotated[
+        bool,
+        typer.Option(
+            "--no-seal",
+            help=(
+                "Upload secret values as plaintext instead of sealing them to "
+                "the instance's public key. Only for instances with no "
+                "sealing key configured."
+            ),
+        ),
+    ] = False,
+    sealing_public_key: Annotated[
+        str | None,
+        typer.Option(
+            "--sealing-public-key",
+            envvar=SEALING_PUBLIC_KEY_VAR,
+            help=(
+                "PEM public key to seal secrets to, or '@path' to a PEM file, "
+                "instead of fetching it from the instance. Pinning the key "
+                "also protects against a TLS-terminating intermediary."
             ),
         ),
     ] = None,
+    output: Annotated[
+        ApplyOutput,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Report format: table, json, or yaml.",
+            case_sensitive=False,
+        ),
+    ] = ApplyOutput.TABLE,
 ) -> None:
-    """Apply manifest documents idempotently.
+    """Apply Ragnerock GitOps manifests (``apiVersion: ragnerock.com/...``).
 
-    New resources (no match on ``metadata.name``) are created; existing ones
-    are updated in place. Manifests are sorted by a fixed kind-dependency
-    order (groups → operators → documents → workflows → annotations) so
-    cross-manifest name lookups resolve correctly.
+    Every document found across the sources is uploaded in one request and
+    upserted by name. Objects absent from the manifests are never deleted.
+    ``Secret`` values are resolved locally and sealed before upload.
     """
-    sources = files or []
+    err = Console(stderr=True, highlight=False, soft_wrap=True)
+
+    if dry_run and plan:
+        raise typer.BadParameter("--dry-run and --plan are mutually exclusive.")
+
     try:
-        docs = read_manifests(sources)
-    except ManifestError as e:
-        typer.echo(f"ManifestError: {e}", err=True)
-        raise typer.Exit(code=1) from e
+        manifests = load_manifests(files)
+    except GitOpsError as e:
+        raise typer.Exit(code=exit_code_for(e)) from e
 
-    ordered = sort_by_apply_order(docs)
-
-    with open_session() as session:
-        _apply_docs(session, ordered)
-
-
-def _apply_docs(session: Session, docs: list[ManifestDoc]) -> None:
-    """Apply a list of manifests in dependency order, one kind stratum at a time."""
-    for doc in docs:
-        _apply_one(session, doc)
-        session.commit()
-
-
-def _apply_one(session: Session, doc: ManifestDoc) -> None:
-    """Dispatch a single manifest to its kind-specific apply path."""
-    kind = doc.spec_kind.kind
-    if kind == "DocumentGroup":
-        _apply_document_group(session, doc)
-    elif kind == "Operator":
-        _apply_operator(session, doc)
-    elif kind == "Document":
-        _apply_document(session, doc)
-    elif kind == "Workflow":
-        _apply_workflow(session, doc)
-    elif kind == "Annotation":
-        _apply_annotation(session, doc)
-    else:  # pragma: no cover — guarded earlier by manifest._validate_doc
-        raise typer.BadParameter(f"apply: unsupported kind {kind!r}")
-
-
-def _apply_document_group(session: Session, doc: ManifestDoc) -> None:
-    """Create or update a :class:`DocumentGroup` from a manifest.
-
-    Looks up the group by ``metadata.name``; if missing, creates it. If
-    present, overlays the spec fields onto the existing resource and stages
-    an update. Either path is idempotent.
-
-    Args:
-        session (Session): Open session used to look up and stage changes.
-        doc (ManifestDoc): Parsed manifest for a ``DocumentGroup``.
-    """
-    existing = session.get(DocumentGroup, name=doc.name)
-    if existing is None:
-        group = DocumentGroup(name=doc.name, **_clean(doc.spec))
-        session.add(group)
-        typer.echo(f"documentgroup/{doc.name} created")
+    sources = ", ".join(files)
+    if not manifests.documents:
+        typer.echo(f"No Ragnerock manifests found under {sources} — nothing to apply.")
         return
-    _copy_spec(existing, doc.spec)
-    session.update(existing)
-    typer.echo(f"documentgroup/{doc.name} configured")
 
+    _report_discovery(err, manifests, sources)
 
-def _apply_operator(session: Session, doc: ManifestDoc) -> None:
-    """Create or update an :class:`Operator` from a manifest.
-
-    String enum values in ``spec.chunk_type`` are coerced to :class:`ChunkType`
-    before the create/update decision.
-
-    Args:
-        session (Session): Open session used to look up and stage changes.
-        doc (ManifestDoc): Parsed manifest for an ``Operator``.
-    """
-    spec = _coerce_operator_spec(doc.spec)
-    existing = session.get(Operator, name=doc.name)
-    if existing is None:
-        op = Operator(name=doc.name, **spec)
-        session.add(op)
-        typer.echo(f"operator/{doc.name} created")
-        return
-    _copy_spec(existing, spec)
-    session.update(existing)
-    typer.echo(f"operator/{doc.name} configured")
-
-
-def _apply_document(session: Session, doc: ManifestDoc) -> None:
-    """Create or update a :class:`Document` from a manifest.
-
-    ``spec.file_type`` strings are coerced to :class:`FileType`, and a
-    ``spec.group`` name is resolved to a ``group_id`` via the session before
-    the create/update decision.
-
-    Args:
-        session (Session): Open session used to resolve references and stage
-            changes.
-        doc (ManifestDoc): Parsed manifest for a ``Document``.
-    """
-    spec = _coerce_document_spec(session, doc.spec)
-    existing = session.get(Document, name=doc.name)
-    if existing is None:
-        new_doc = Document(name=doc.name, **spec)
-        session.add(new_doc)
-        typer.echo(f"document/{doc.name} created")
-        return
-    _copy_spec(existing, spec)
-    session.update(existing)
-    typer.echo(f"document/{doc.name} configured")
-
-
-def _apply_workflow(session: Session, doc: ManifestDoc) -> None:
-    """Create or update a :class:`Workflow` along with its nodes and edges.
-
-    Nodes and edges are popped off the spec before the workflow itself is
-    created or updated, then reconciled in a second pass — the node CRUD
-    calls need a server-assigned workflow id, so the workflow-level change
-    is committed first.
-
-    Args:
-        session (Session): Open session used to look up and stage changes.
-            Committed partway through so downstream node calls can reference
-            the workflow id.
-        doc (ManifestDoc): Parsed manifest for a ``Workflow``.
-    """
-    nodes_spec = doc.spec.pop("nodes", None) or []
-    edges_spec = doc.spec.pop("edges", None) or []
-
-    existing = session.get(Workflow, name=doc.name)
-    if existing is None:
-        wf = Workflow(name=doc.name, **_clean(doc.spec))
-        session.add(wf)
-        session.commit()  # node/edge work below needs the workflow id
-        workflow = wf
-        typer.echo(f"workflow/{doc.name} created")
-    else:
-        _copy_spec(existing, doc.spec)
-        session.update(existing)
-        session.commit()
-        workflow = existing
-        typer.echo(f"workflow/{doc.name} configured")
-
-    _apply_workflow_nodes(session, workflow, nodes_spec, edges_spec)
-
-
-def _apply_workflow_nodes(
-    session: Session,
-    workflow: Workflow,
-    nodes_spec: list[Any],
-    edges_spec: list[Any],
-) -> None:
-    """Reconcile the workflow's nodes and edges with the manifest."""
-    if not isinstance(nodes_spec, list):
-        raise typer.BadParameter("workflow.spec.nodes must be a list")
-    if not isinstance(edges_spec, list):
-        raise typer.BadParameter("workflow.spec.edges must be a list")
-
-    nodes_by_op = {}  # operator name → committed WorkflowNode
-    for entry in nodes_spec:
-        if not isinstance(entry, dict):
-            raise typer.BadParameter("each workflow node must be a mapping")
-        # Accept `operator_name` as an alias so YAML emitted by `get -o yaml`
-        # (which serializes the SDK field name) round-trips back through apply.
-        op_name = entry.get("operator") or entry.get("operator_name")
-        if not op_name:
-            raise typer.BadParameter(
-                "each workflow node requires 'operator' (or 'operator_name')"
-            )
-        operator = session.get(Operator, name=op_name)
-        if operator is None:
-            typer.echo(
-                f"workflow {workflow.name!r}: operator {op_name!r} not found",
-                err=True,
-            )
-            raise typer.Exit(code=1)
-        existing = _find_node_by_operator(workflow, op_name)
+    if dry_run:
         try:
-            if existing is None:
-                node = workflow.add_node(
-                    operator=operator,
-                    condition=entry.get("condition"),
-                    persist=entry.get("persist", True),
-                    on_error=entry.get("on_error", "FAIL_JOB"),
-                    max_retries=entry.get("max_retries", 0),
-                )
-                nodes_by_op[op_name] = node
-            else:
-                # Workflow GET responses carry each node's `id` but often
-                # omit `workflow_id` / `operator_id` (they're implicit from
-                # the URL and operator name). Backfill them from context so
-                # the update call has everything it needs.
-                if existing.workflow_id is None:
-                    existing.workflow_id = workflow.id
-                if existing.operator_id is None:
-                    existing.operator_id = operator.id
-                if "condition" in entry:
-                    raw = entry["condition"]
-                    existing.condition = (
-                        compile_condition(raw) if raw is not None else None
-                    )
-                if "persist" in entry:
-                    existing.persist = entry["persist"]
-                if "on_error" in entry:
-                    existing.on_error = entry["on_error"]
-                if "max_retries" in entry:
-                    existing.max_retries = entry["max_retries"]
-                session.update(existing)
-                nodes_by_op[op_name] = existing
-        except ValidationError as e:
-            raise typer.BadParameter(
-                f"workflow {workflow.name!r} node {op_name!r}: {e}"
-            ) from e
+            prepared = render_dry_run(manifests, seal=not no_seal)
+        except GitOpsError as e:
+            raise typer.Exit(code=exit_code_for(e)) from e
+        _report_secrets(err, prepared, dry_run=True)
+        err.print("\n--- manifest to upload (dry run; secret values elided) ---\n")
+        typer.echo(prepared.to_yaml())
+        return
 
-    session.commit()
+    pinned_pem = _read_pem(sealing_public_key)
 
-    for edge in edges_spec:
-        if isinstance(edge, list) and len(edge) == 2:
-            src_name, dst_name = edge
-        elif isinstance(edge, dict):
-            src_name = edge.get("from")
-            dst_name = edge.get("to")
+    try:
+        client = build_client()
+    except ConfigError as e:
+        typer.echo(f"ConfigError: {e}", err=True)
+        raise typer.Exit(code=USER_ERROR) from e
+    except RagnerockError as e:
+        raise typer.Exit(code=exit_code_for(e)) from e
+
+    with client:
+        try:
+            prepared = prepare_manifest(
+                manifests,
+                client=client,
+                seal=not no_seal,
+                sealing_public_key=pinned_pem,
+            )
+        except RagnerockError as e:
+            raise typer.Exit(code=exit_code_for(e)) from e
+        _report_secrets(err, prepared, dry_run=False)
+        if no_seal and prepared.secrets.key_count:
+            _warn_unsealed(err, prepared.secrets.key_count)
+
+        try:
+            report = client.gitops.apply(prepared.to_yaml(), dry_run=plan)
+        except RagnerockError as e:
+            raise typer.Exit(code=exit_code_for(e)) from e
+        except httpx.HTTPError as e:
+            typer.echo(f"{type(e).__name__}: could not reach the server: {e}", err=True)
+            raise typer.Exit(code=SERVER_ERROR) from e
+
+    if output is ApplyOutput.TABLE:
+        _render_report(report)
+    else:
+        payload = report.model_dump(mode="json")
+        if output is ApplyOutput.JSON:
+            typer.echo(json.dumps(payload, indent=2))
         else:
-            raise typer.BadParameter(
-                "each edge must be [src, dst] or {from: src, to: dst}"
-            )
-        src = nodes_by_op.get(src_name)
-        dst = nodes_by_op.get(dst_name)
-        if src is None or dst is None:
-            typer.echo(
-                f"workflow {workflow.name!r}: edge references unknown operator "
-                f"({src_name!r} -> {dst_name!r})",
-                err=True,
-            )
-            raise typer.Exit(code=1)
-        _ = src >> dst  # wiring via the WorkflowNode `>>` operator
+            typer.echo(yaml.safe_dump(payload, sort_keys=False).rstrip())
+    _annotate_warnings(report)
 
-    session.commit()
+    if not report.ok:
+        raise typer.Exit(code=USER_ERROR)
 
 
-def _find_node_by_operator(
-    workflow: Workflow, operator_name: str
-) -> WorkflowNode | None:
-    """Find a workflow node whose operator has the given name.
+def _read_pem(value: str | None) -> str | None:
+    """Resolve a ``--sealing-public-key`` value to PEM text.
 
     Args:
-        workflow (Workflow): Workflow whose nodes to search.
-        operator_name (str): Operator name to match on, as present in
-            :attr:`WorkflowNode.operator_name`.
+        value (str | None): PEM text, ``@path`` to a PEM file, or ``None``.
 
     Returns:
-        WorkflowNode | None: The first matching node, or ``None`` if no node
-        references that operator. Node identity within a workflow is by
-        operator, so there is at most one match.
+        str | None: The PEM text, or ``None`` when no key was pinned.
+
+    Raises:
+        typer.Exit: With code 1 if an ``@path`` file cannot be read.
     """
-    for node in workflow.nodes:
-        if node.operator_name == operator_name:
-            return node
-    return None
+    if not value:
+        return None
+    if not value.startswith("@"):
+        return value
+    path = Path(value[1:]).expanduser()
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as e:
+        typer.echo(f"Cannot read sealing public key {str(path)!r}: {e}", err=True)
+        raise typer.Exit(code=USER_ERROR) from e
 
 
-def _apply_annotation(session: Session, doc: ManifestDoc) -> None:
-    """Create an :class:`Annotation` from a manifest.
+def _report_discovery(err: Console, manifests: ManifestSet, sources: str) -> None:
+    """Describe what discovery found, on stderr."""
+    err.print(
+        f"Discovered {len(manifests)} Ragnerock manifest document(s) in "
+        f"{len(manifests.files)} file(s) under {escape(sources)}:"
+    )
+    for name in manifests.files:
+        err.print(f"  • {escape(name)}")
+    if manifests.skipped:
+        err.print(f"Skipped {manifests.skipped} non-Ragnerock document(s).")
 
-    Annotations are additive only — there is no server-side update-by-name
-    path — so each apply creates a new annotation. A ``spec.operator`` name
-    is resolved to ``operator_id`` before creation. The manifest's
-    ``metadata.name`` is used for CLI output only; annotation identity lives
-    on ``root_id``.
 
-    Args:
-        session (Session): Open session used to resolve the operator and
-            stage the create.
-        doc (ManifestDoc): Parsed manifest for an ``Annotation``.
-    """
-    spec = dict(doc.spec)
-    op_name = spec.pop("operator", None)
-    if op_name is not None and "operator_id" not in spec:
-        operator = session.get(Operator, name=op_name)
-        if operator is None:
-            typer.echo(
-                f"annotation/{doc.name}: operator {op_name!r} not found", err=True
+def _report_secrets(err: Console, prepared: PreparedManifest, *, dry_run: bool) -> None:
+    """Describe secret resolution and sealing, on stderr."""
+    secrets = prepared.secrets
+    if secrets.env_key_count:
+        err.print(f"Resolved {secrets.env_key_count} fromEnv secret key(s) locally.")
+    if secrets.cloud_reference_count:
+        if dry_run:
+            err.print(
+                f"Checked {secrets.cloud_reference_count} cloud secret reference(s); "
+                "a dry run does not fetch them."
             )
-            raise typer.Exit(code=1)
-        spec["operator_id"] = operator.id
-    # Annotations: name is advisory only; identity is on root_id.
-    ann = Annotation(**_clean(spec))
-    session.add(ann)
-    typer.echo(f"annotation/{doc.name} created")
-
-
-def _coerce_operator_spec(spec: dict[str, Any]) -> dict[str, Any]:
-    """Coerce string enum names (e.g. ``PARAGRAPH``) to their SDK enums."""
-    out = dict(spec)
-    chunk = out.get("chunk_type")
-    if isinstance(chunk, str):
-        out["chunk_type"] = ChunkType[chunk.upper()]
-    return _clean(out)
-
-
-def _coerce_document_spec(session: Session, spec: dict[str, Any]) -> dict[str, Any]:
-    """Coerce file_type enums and resolve ``group: <name>`` → ``group_id``."""
-    out = dict(spec)
-    ft = out.get("file_type")
-    if isinstance(ft, str):
-        out["file_type"] = FileType[ft.upper()]
-    group = out.pop("group", None)
-    if group is not None and "group_id" not in out:
-        matched = (
-            session.get(DocumentGroup, name=group) if isinstance(group, str) else None
+        else:
+            err.print(
+                f"Resolved {secrets.cloud_reference_count} secret key(s) from cloud "
+                "secret managers."
+            )
+    if prepared.sealing_fingerprint is not None:
+        source = (
+            "pinned" if prepared.sealing_key_pinned else "fetched from the instance"
         )
-        if matched is None:
-            raise typer.BadParameter(f"DocumentGroup {group!r} not found")
-        out["group_id"] = matched.id
-    return _clean(out)
+        err.print(f"Sealing secrets to key {prepared.sealing_fingerprint} ({source}).")
+        if not prepared.sealing_key_pinned:
+            err.print(
+                "  note: the key was fetched over the same connection it protects. "
+                "Pin it with --sealing-public-key to also defend against an "
+                "intermediary that terminates TLS."
+            )
 
 
-def _copy_spec(target: _Resource, spec: dict[str, Any]) -> None:
-    """Copy scalar fields from ``spec`` onto ``target`` in place."""
-    model_fields = type(target).model_fields
-    for key, value in spec.items():
-        if key in model_fields:
-            setattr(target, key, value)
+def _warn_unsealed(err: Console, key_count: int) -> None:
+    """Warn that secret values are about to be uploaded as plaintext."""
+    message = (
+        f"Sealing is disabled, so {key_count} secret value(s) will be uploaded as "
+        "plaintext in the request body."
+    )
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        print(f"::warning::{message}", flush=True)
+    else:
+        err.print(f"[yellow]warning:[/] {message}")
 
 
-def _clean(spec: dict[str, Any]) -> dict[str, Any]:
-    """Drop ``None`` values so we don't overwrite model defaults with nulls."""
-    return {k: v for k, v in spec.items() if v is not None}
+def _render_report(report: GitOpsApplyResponse) -> None:
+    """Print the per-object summary.
+
+    Objects and the summary line go to stdout; errors and warnings go to
+    stderr beneath the object they belong to.
+    """
+    out = Console(highlight=False, soft_wrap=True)
+    err = Console(stderr=True, highlight=False, soft_wrap=True)
+
+    for problem in report.structural_errors:
+        err.print(f"  [red]structural error:[/] {escape(str(problem))}")
+
+    width = max((len(r.kind) for r in report.results), default=0)
+    for result in report.results:
+        style = _ACTION_STYLES.get(result.action, "")
+        action = (
+            f"[{style}]{escape(result.action)}[/]" if style else escape(result.action)
+        )
+        out.print(f"  {escape(result.kind):<{width}}  {escape(result.name)}  {action}")
+        for problem in result.errors:
+            err.print(f"      [red]↳[/] {escape(str(problem))}")
+        for warning in result.warnings:
+            err.print(f"      [yellow]⚠[/] {escape(str(warning))}")
+
+    prefix = "OK" if report.ok else "FAILED"
+    if report.dry_run:
+        prefix = f"{prefix} (plan, nothing was applied)"
+    parts = [f"{report.changed} changed", f"{len(report.results)} object(s)"]
+    if report.warning_count:
+        parts.insert(1, f"{report.warning_count} warning(s)")
+    out.print(f"\n{prefix} — {', '.join(parts)}")
+
+
+def _annotate_warnings(report: GitOpsApplyResponse) -> None:
+    """Raise each per-object warning as a GitHub Actions annotation.
+
+    A no-op outside GitHub Actions. Inside it, warnings land on the workflow
+    summary rather than only in the log body.
+    """
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return
+    for result in report.results:
+        for warning in result.warnings:
+            _annotate(result, str(warning))
+
+
+def _annotate(result: GitOpsApplyResult, warning: str) -> None:
+    """Emit one ``::warning`` workflow command for an object."""
+    title = f"{result.kind} {result.name}"
+    body = " ".join(warning.split())
+    print(f"::warning title={title}::{body}", flush=True)
