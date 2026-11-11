@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from ragnerock import CommitError, Document, DocumentGroup, Operator
+from ragnerock import CommitError, Document, DocumentFolder, Task
 
 
 class TestCommitOrdering:
@@ -69,19 +69,19 @@ class TestCommitFailureSemantics:
         self, httpx_mock, session, payloads, base_url
     ):
         # three adds; first two succeed, third fails
-        ok1 = Operator(
+        ok1 = Task(
             name="a",
             jsonschema={"type": "object"},
             generation_prompt="p",
             chunk_type=1,
         )
-        ok2 = Operator(
+        ok2 = Task(
             name="b",
             jsonschema={"type": "object"},
             generation_prompt="p",
             chunk_type=1,
         )
-        bad = Operator(
+        bad = Task(
             name="c",
             jsonschema={"type": "object"},
             generation_prompt="p",
@@ -90,17 +90,17 @@ class TestCommitFailureSemantics:
 
         httpx_mock.add_response(
             method="POST",
-            url=f"{base_url}/api/operators/",
-            json=payloads.operator(id="00000000-0000-0000-0000-0000000000a1", name="a"),
+            url=f"{base_url}/api/tasks/",
+            json=payloads.task(id="00000000-0000-0000-0000-0000000000a1", name="a"),
         )
         httpx_mock.add_response(
             method="POST",
-            url=f"{base_url}/api/operators/",
-            json=payloads.operator(id="00000000-0000-0000-0000-0000000000a2", name="b"),
+            url=f"{base_url}/api/tasks/",
+            json=payloads.task(id="00000000-0000-0000-0000-0000000000a2", name="b"),
         )
         httpx_mock.add_response(
             method="POST",
-            url=f"{base_url}/api/operators/",
+            url=f"{base_url}/api/tasks/",
             status_code=500,
             json={"detail": {"message": "boom"}},
         )
@@ -149,30 +149,28 @@ class TestAddDeleteInteraction:
 
 
 class TestMixedTypeCommit:
-    def test_operator_and_document_together(
-        self, httpx_mock, session, payloads, base_url
-    ):
+    def test_task_and_document_together(self, httpx_mock, session, payloads, base_url):
         httpx_mock.add_response(
             method="POST",
-            url=f"{base_url}/api/operators/",
-            json=payloads.operator(id="00000000-0000-0000-0000-0000000000c1"),
+            url=f"{base_url}/api/tasks/",
+            json=payloads.task(id="00000000-0000-0000-0000-0000000000c1"),
         )
         httpx_mock.add_response(
             method="POST",
             url=f"{base_url}/api/documents/",
             json=payloads.document(id="00000000-0000-0000-0000-0000000000c2"),
         )
-        op = Operator(
+        task = Task(
             name="x",
             jsonschema={"type": "object"},
             generation_prompt="p",
             chunk_type=1,
         )
         doc = Document(source_url="https://example.com/x.pdf")
-        session.add(op)
+        session.add(task)
         session.add(doc)
         session.commit()
-        assert op.id is not None
+        assert task.id is not None
         assert doc.id is not None
 
 
@@ -189,13 +187,15 @@ class TestRefresh:
         session.refresh(doc)
         assert doc.name == "updated.pdf"
 
-    def test_refresh_document_group(self, httpx_mock, session, payloads, project_id):
-        group = DocumentGroup(**payloads.document_group())
-        session._bind(group)
+    def test_refresh_document_folder(self, httpx_mock, session, payloads, project_id):
+        folder = DocumentFolder(**payloads.document_folder())
+        session._bind(folder)
         httpx_mock.add_response(
             method="GET",
-            url=re.compile(rf".*/api/projects/{project_id}/groups/{group.id}$"),
-            json=payloads.document_group(id=str(group.id), name="Q3"),
+            url=re.compile(
+                rf".*/api/projects/{project_id}/document-folders/{folder.id}$"
+            ),
+            json=payloads.document_folder(id=str(folder.id), name="Q3"),
         )
-        session.refresh(group)
-        assert group.name == "Q3"
+        session.refresh(folder)
+        assert folder.name == "Q3"

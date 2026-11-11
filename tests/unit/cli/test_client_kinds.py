@@ -46,7 +46,7 @@ def _skill(skill_id: str, name: str) -> dict[str, Any]:
         "description": "d",
         "body": "b",
         "is_available": True,
-        "operator_count": 2,
+        "task_count": 2,
     }
 
 
@@ -58,7 +58,7 @@ def _skill(skill_id: str, name: str) -> dict[str, Any]:
         ("ep", "Endpoint"),
         ("nb", "Notebook"),
         ("saved-queries", "SavedQuery"),
-        ("artifacts", "WorkflowArtifact"),
+        ("artifacts", "OutputArtifact"),
         ("ingest-sources", "IngestSource"),
         ("ingest-configs", "IngestConfig"),
         ("ai-configs", "AIConfig"),
@@ -160,18 +160,18 @@ def test_account_level_kind_table(
     assert "PROVIDER" in result.stdout
 
 
-def test_workflow_artifacts_follow_cursors(
+def test_output_artifacts_follow_cursors(
     runner: CliRunner, httpx_mock: Any, cli_session: Session
 ) -> None:
     artifact = {"id": "00000000-0000-0000-0000-00000000d001", "file_name": "out.csv"}
     httpx_mock.add_response(
         method="GET",
-        url=re.compile(r".*/workflow-artifacts\?limit=50$"),
+        url=re.compile(r".*/output-artifacts\?limit=50$"),
         json={"artifacts": [artifact], "next_cursor": "c2"},
     )
     httpx_mock.add_response(
         method="GET",
-        url=re.compile(r".*/workflow-artifacts\?.*cursor=c2.*"),
+        url=re.compile(r".*/output-artifacts\?.*cursor=c2.*"),
         json={
             "artifacts": [
                 {
@@ -186,6 +186,44 @@ def test_workflow_artifacts_follow_cursors(
     result = runner.invoke(app, ["get", "artifacts", "-o", "name"])
     assert result.exit_code == 0, result.stderr
     assert result.stdout.splitlines() == ["out.csv", "b.csv"]
+
+
+def test_output_artifact_table_shows_agent_and_output(
+    runner: CliRunner, httpx_mock: Any, cli_session: Session
+) -> None:
+    httpx_mock.add_response(
+        method="GET",
+        url=re.compile(r".*/output-artifacts\?limit=50$"),
+        json={
+            "artifacts": [
+                {
+                    "id": "00000000-0000-0000-0000-00000000d001",
+                    "file_name": "out.csv",
+                    "agent_name": "digest_agent",
+                    "output_name": "weekly_csv",
+                }
+            ],
+            "next_cursor": None,
+        },
+    )
+    result = runner.invoke(app, ["get", "output-artifacts"])
+    assert result.exit_code == 0, result.stderr
+    for text in ("AGENT", "OUTPUT", "digest_agent", "weekly_csv"):
+        assert text in result.stdout
+
+
+def test_skill_table_counts_tasks(
+    runner: CliRunner, httpx_mock: Any, cli_session: Session
+) -> None:
+    httpx_mock.add_response(
+        method="GET",
+        url=re.compile(r".*/api/skills/\?.*"),
+        json={"skills": [_skill(SKILL_A, "tone")], "total": 1},
+    )
+    result = runner.invoke(app, ["get", "skills"])
+    assert result.exit_code == 0, result.stderr
+    assert "TASKS" in result.stdout
+    assert "AGENTS" not in result.stdout
 
 
 def test_filters_are_rejected(runner: CliRunner, cli_session: Session) -> None:

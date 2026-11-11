@@ -12,15 +12,13 @@ from ragnerock.session import Session
 
 
 def delete_cmd(
-    kind: Annotated[
-        str, typer.Argument(help="Resource kind, e.g. 'doc' or 'workflow'.")
-    ],
+    kind: Annotated[str, typer.Argument(help="Resource kind, e.g. 'doc' or 'agent'.")],
     name: Annotated[str, typer.Argument(help="Resource name.")],
 ) -> None:
     """Delete one resource by ``kind name``.
 
     GitOps apply never deletes, so this is how objects are removed from the
-    CLI. Supported kinds: Document, DocumentGroup, Operator, Workflow.
+    CLI. Supported kinds: Document, DocumentFolder, Task, Agent.
     """
     try:
         spec = resolve_kind(kind)

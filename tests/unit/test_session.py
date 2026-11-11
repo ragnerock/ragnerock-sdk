@@ -7,15 +7,15 @@ import re
 import pytest
 
 from ragnerock import (
+    Agent,
     Annotation,
     Chunk,
     Document,
-    DocumentGroup,
-    Job,
+    DocumentFolder,
     Page,
+    Run,
     Session,
     ValidationError,
-    Workflow,
 )
 
 
@@ -62,9 +62,9 @@ class TestAddValidation:
         with pytest.raises((TypeError, ValidationError)):
             session.add(Page(page_number=1))
 
-    def test_add_job_raises(self, session):
+    def test_add_run_raises(self, session):
         with pytest.raises((TypeError, ValidationError)):
-            session.add(Job())
+            session.add(Run())
 
     def test_add_persisted_resource_raises(self, session):
         existing = Document(id="00000000-0000-0000-0000-000000000101")
@@ -162,17 +162,17 @@ class TestListRequiredFilters:
 class TestRunRequiresPersistedResources:
     """``session.run`` does not auto-flush; resources must be committed first."""
 
-    def test_uncommitted_workflow_raises(self, session):
-        wf = Workflow(name="new")
+    def test_uncommitted_agent_raises(self, session):
+        agent = Agent(name="new")
         doc = Document(id="00000000-0000-0000-0000-000000000101")
         with pytest.raises(ValidationError):
-            session.run(wf, documents=[doc])
+            session.run(agent, documents=[doc])
 
     def test_uncommitted_document_raises(self, session):
-        wf = Workflow(id="00000000-0000-0000-0000-000000000701", name="ingest")
+        agent = Agent(id="00000000-0000-0000-0000-000000000701", name="ingest")
         doc = Document(file_path="./x.pdf")
         with pytest.raises(ValidationError):
-            session.run(wf, documents=[doc])
+            session.run(agent, documents=[doc])
 
 
 class TestRollback:
@@ -220,10 +220,10 @@ class TestResourceBinding:
     def test_add_commit_binds_resource(self, httpx_mock, session, payloads):
         httpx_mock.add_response(
             method="POST",
-            url=re.compile(r".*/api/projects/.*/groups/$"),
-            json=payloads.document_group(),
+            url=re.compile(r".*/api/projects/.*/document-folders/$"),
+            json=payloads.document_folder(),
         )
-        group = DocumentGroup(name="Q1 contracts")
-        session.add(group)
+        folder = DocumentFolder(name="Q1 contracts")
+        session.add(folder)
         session.commit()
-        assert group._is_bound
+        assert folder._is_bound

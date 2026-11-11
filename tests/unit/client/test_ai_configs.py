@@ -10,6 +10,7 @@ import pytest
 from ragnerock.client import UNSET, RagnerockClient
 from ragnerock.client.ai_configs import (
     AI_CONFIG_VALIDATE_TIMEOUT,
+    AIConfigDetail,
     AIConfigStatus,
     RegenerationStatus,
 )
@@ -40,7 +41,8 @@ def _config_payload(config_id: uuid.UUID = CFG_1, **overrides: Any) -> dict[str,
         "timeout_seconds": 120,
         "max_requests_per_minute": None,
         "max_tokens_per_day": None,
-        "referencing_operator_count": 3,
+        "loop_turn_token_budget": 60_000,
+        "usage": {"tasks": 3, "endpoints": 0, "notebooks": 1, "harnesses": []},
         "is_active": True,
     }
     payload.update(overrides)
@@ -108,6 +110,7 @@ class TestCreate:
             config_name="Azure",
             model_name="gpt-4o",
             fallback_ai_config_id=CFG_2,
+            loop_turn_token_budget=60_000,
             assignment_token_budget=400_000,
             assignment_max_turns=12,
             assignment_max_age_days=7,
@@ -121,6 +124,8 @@ class TestCreate:
         assert body["model_name"] == "gpt-4o"
         assert body["config_name"] == "Azure"
         assert body["fallback_ai_config_id"] == str(CFG_2)
+        assert body["loop_turn_token_budget"] == 60_000
+        assert "agent_turn_token_budget" not in body
         assert body["assignment_token_budget"] == 400_000
         assert body["assignment_max_turns"] == 12
         assert body["assignment_max_age_days"] == 7
@@ -173,7 +178,8 @@ class TestListAndGet:
         assert first.status == AIConfigStatus.DEFAULT
         assert first.provider_type == AIProviderType.OPENAI
         assert first.api_key_masked == "sk-...abcd"
-        assert first.referencing_operator_count == 3
+        assert first.model_dump()["usage"]["tasks"] == 3
+        assert "referencing_operator_count" not in AIConfigDetail.model_fields
         assert result.total == 2
 
     def test_get_picks_the_matching_config(
@@ -308,7 +314,7 @@ class TestDeleteAndStatus:
                 "id": str(CFG_1),
                 "status": "disabled",
                 "message": "Config disabled",
-                "operators_referencing": 4,
+                "tasks_referencing": 4,
                 "snapshots_referencing": 1,
                 "fallbacks_referencing": 0,
             },
@@ -319,7 +325,7 @@ class TestDeleteAndStatus:
         assert last_json(httpx_mock) == {"status": "disabled"}
         assert _read_timeout(httpx_mock) == AI_CONFIG_VALIDATE_TIMEOUT
         assert result.status == AIConfigStatus.DISABLED
-        assert result.operators_referencing == 4
+        assert result.tasks_referencing == 4
         assert result.snapshots_referencing == 1
 
     def test_set_status_accepts_plain_strings(
@@ -519,9 +525,9 @@ class TestEmbeddingConfig:
                 "new_embedding_model": "text-embedding-3-small",
                 "new_embedding_type": "openai",
                 "new_embedding_dimensions": 1536,
-                "jobs_total": 10,
-                "jobs_completed": 4,
-                "jobs_failed": 0,
+                "runs_total": 10,
+                "runs_completed": 4,
+                "runs_failed": 0,
                 "supplemental_rounds": 0,
                 "created_at": "2026-09-17T00:00:00Z",
                 "updated_at": "2026-09-17T00:05:00Z",
@@ -533,7 +539,7 @@ class TestEmbeddingConfig:
         assert detail.id == REGEN_1
         assert detail.status == RegenerationStatus.IN_PROGRESS
         assert detail.new_embedding_type == EmbeddingModelType.OPENAI
-        assert detail.jobs_completed == 4
+        assert detail.runs_completed == 4
         assert detail.completed_at is None
 
     def test_latest_regeneration_none_raises_not_found(

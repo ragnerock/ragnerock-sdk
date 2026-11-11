@@ -23,11 +23,11 @@ class AIConfigStatus(StrEnum):
     """Lifecycle status of an AI provider config."""
 
     DEFAULT = "default"
-    """Used by every operator and agent that doesn't pick a config. At most one
+    """Used by every task and notebook that doesn't pick a config. At most one
     per account."""
 
     ACTIVE = "active"
-    """Available for individual operators to select."""
+    """Available for individual tasks to select."""
 
     DISABLED = "disabled"
     """Stored, but neither usable nor selectable."""
@@ -67,7 +67,6 @@ class AIConfigDetail(_ApiModel):
             ``None`` means the provider's defaults.
         max_requests_per_minute (int | None): Rate limit, if any.
         max_tokens_per_day (int | None): Daily token limit, if any.
-        referencing_operator_count (int): Operators bound to this config.
     """
 
     id: UUID
@@ -84,7 +83,6 @@ class AIConfigDetail(_ApiModel):
     provider_options: dict[str, Any] | None = None
     max_requests_per_minute: int | None = None
     max_tokens_per_day: int | None = None
-    referencing_operator_count: int = 0
 
 
 class ListAIConfigsResponse(_ApiModel):
@@ -121,7 +119,7 @@ class SetAIConfigStatusResponse(_ApiModel):
         id (UUID): Config id.
         status (str | None): The new :class:`AIConfigStatus` value.
         message (str | None): Human-readable outcome.
-        operators_referencing (int | None): Operators bound to the config.
+        tasks_referencing (int | None): Tasks bound to the config.
         snapshots_referencing (int | None): Of those, how many are copies
             held by published endpoints.
         fallbacks_referencing (int | None): Configs that fail over to this
@@ -131,13 +129,13 @@ class SetAIConfigStatusResponse(_ApiModel):
     id: UUID
     status: str | None = None
     message: str | None = None
-    operators_referencing: int | None = None
+    tasks_referencing: int | None = None
     snapshots_referencing: int | None = None
     fallbacks_referencing: int | None = None
 
 
 class SelectableAIConfig(_ApiModel):
-    """A config an operator may be bound to (no endpoint or key details)."""
+    """A config a task may be bound to (no endpoint or key details)."""
 
     id: UUID
     config_name: str | None = None
@@ -148,7 +146,7 @@ class SelectableAIConfig(_ApiModel):
 
 
 class ListSelectableAIConfigsResponse(_ApiModel):
-    """Configs an operator may be bound to, default first."""
+    """Configs a task may be bound to, default first."""
 
     configs: list[SelectableAIConfig] = []
 
@@ -216,9 +214,9 @@ class RegenerationDetail(_ApiModel):
         new_embedding_type (str | None): Provider family being moved to.
         new_embedding_model (str | None): Model being moved to.
         new_embedding_dimensions (int | None): Vector size being moved to.
-        jobs_total (int): Re-embedding jobs started.
-        jobs_completed (int): Jobs finished successfully.
-        jobs_failed (int): Jobs that failed.
+        runs_total (int): Re-embedding runs started.
+        runs_completed (int): Runs finished successfully.
+        runs_failed (int): Runs that failed.
         error_message (str | None): Why the regeneration failed, if it did.
         created_at (datetime | None): When it started.
         updated_at (datetime | None): Last progress update.
@@ -233,9 +231,9 @@ class RegenerationDetail(_ApiModel):
     new_embedding_type: str | None = None
     new_embedding_model: str | None = None
     new_embedding_dimensions: int | None = None
-    jobs_total: int = 0
-    jobs_completed: int = 0
-    jobs_failed: int = 0
+    runs_total: int = 0
+    runs_completed: int = 0
+    runs_failed: int = 0
     error_message: str | None = None
     created_at: UtcDatetime = None
     updated_at: UtcDatetime = None
@@ -300,7 +298,7 @@ class _AIConfigsSection(_Section):
         timeout_seconds: int = 120,
         max_requests_per_minute: int | None = None,
         max_tokens_per_day: int | None = None,
-        agent_turn_token_budget: int | None = None,
+        loop_turn_token_budget: int | None = None,
         assignment_token_budget: int | None = None,
         assignment_max_turns: int | None = None,
         assignment_max_age_days: int | None = None,
@@ -333,9 +331,10 @@ class _AIConfigsSection(_Section):
             timeout_seconds (int): Per-request provider timeout (10-300).
             max_requests_per_minute (int | None): Rate limit.
             max_tokens_per_day (int | None): Daily token limit.
-            agent_turn_token_budget (int | None): Notebook agent's per-turn
-                budget, in cost-weighted tokens (at least 1000).
-            assignment_token_budget (int | None): What one agent assignment
+            loop_turn_token_budget (int | None): What one loop turn (a
+                notebook turn, say) may spend, in cost-weighted tokens (at
+                least 1000).
+            assignment_token_budget (int | None): What one assignment
                 may spend, in cost-weighted tokens (at least 1000).
             assignment_max_turns (int | None): Turns one assignment may take.
             assignment_max_age_days (int | None): Days one assignment may run
@@ -372,7 +371,7 @@ class _AIConfigsSection(_Section):
             timeout_seconds=timeout_seconds,
             max_requests_per_minute=max_requests_per_minute,
             max_tokens_per_day=max_tokens_per_day,
-            agent_turn_token_budget=agent_turn_token_budget,
+            loop_turn_token_budget=loop_turn_token_budget,
             assignment_token_budget=assignment_token_budget,
             assignment_max_turns=assignment_max_turns,
             assignment_max_age_days=assignment_max_age_days,
@@ -432,7 +431,7 @@ class _AIConfigsSection(_Section):
         timeout_seconds: int | None = None,
         max_requests_per_minute: int | None = None,
         max_tokens_per_day: int | None = None,
-        agent_turn_token_budget: int | None = None,
+        loop_turn_token_budget: int | None = None,
         assignment_token_budget: int | None = None,
         assignment_max_turns: int | None = None,
         assignment_max_age_days: int | None = None,
@@ -463,7 +462,7 @@ class _AIConfigsSection(_Section):
             timeout_seconds (int | None): New provider timeout (10-300).
             max_requests_per_minute (int | None): New rate limit.
             max_tokens_per_day (int | None): New daily token limit.
-            agent_turn_token_budget (int | None): New per-turn budget.
+            loop_turn_token_budget (int | None): New per-turn budget.
             assignment_token_budget (int | None): New assignment budget.
             assignment_max_turns (int | None): New assignment turn cap.
             assignment_max_age_days (int | None): New assignment age cap.
@@ -491,7 +490,7 @@ class _AIConfigsSection(_Section):
             timeout_seconds=timeout_seconds,
             max_requests_per_minute=max_requests_per_minute,
             max_tokens_per_day=max_tokens_per_day,
-            agent_turn_token_budget=agent_turn_token_budget,
+            loop_turn_token_budget=loop_turn_token_budget,
             assignment_token_budget=assignment_token_budget,
             assignment_max_turns=assignment_max_turns,
             assignment_max_age_days=assignment_max_age_days,
@@ -529,7 +528,7 @@ class _AIConfigsSection(_Section):
         """Move a config between ``default``, ``active`` and ``disabled``.
 
         Calls ``PUT /api/ai-configs/{config_id}/status``. Promoting a config
-        to ``default`` demotes the current default to ``active``. Operators
+        to ``default`` demotes the current default to ``active``. Tasks
         bound to a disabled config fail at run time until re-pointed; the
         response counts them.
 
@@ -550,7 +549,7 @@ class _AIConfigsSection(_Section):
         return SetAIConfigStatusResponse.model_validate(response.json())
 
     def list_selectable(self) -> ListSelectableAIConfigsResponse:
-        """List the configs an operator may be bound to, default first.
+        """List the configs a task may be bound to, default first.
 
         Calls ``GET /api/ai-configs/selectable``. Open to any account member;
         the listing carries no endpoints, key hints or limits.

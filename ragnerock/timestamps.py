@@ -17,7 +17,7 @@ def _empty_str_to_none(value: Any) -> Any:
     """Map an empty string to ``None``.
 
     Some endpoints send ``""`` for a timestamp that has not happened yet
-    (e.g. a job's ``end_time`` while it is running).
+    (e.g. a run's ``end_time`` while it is running).
 
     Args:
         value (Any): The raw field value.

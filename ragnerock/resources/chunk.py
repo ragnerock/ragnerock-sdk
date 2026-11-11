@@ -9,7 +9,7 @@ from ragnerock.resources.base import _Resource
 
 
 class ChunkType(IntEnum):
-    """Scope a chunk covers, or an operator runs at. Mirrors the server's integer values.
+    """Scope a chunk covers, or a task runs at. Mirrors the server's integer values.
 
     Two families share the enum: the document family
     (``DOCUMENT > PAGE > PARAGRAPH > SENTENCE``) and the tabular family
@@ -39,10 +39,10 @@ class ChunkType(IntEnum):
 
     @property
     def accepts_input_columns(self) -> bool:
-        """Whether an operator at this scope may narrow the columns it is shown.
+        """Whether a task at this scope may narrow the columns it is shown.
 
         Only :attr:`ROW` and :attr:`SHEET` targets carry a sheet's column
-        definitions, so only those scopes accept an operator's
+        definitions, so only those scopes accept a task's
         ``input_columns``.
 
         Returns:
@@ -56,7 +56,7 @@ class Chunk(_Resource):
 
     A chunk carries the extracted text for a range of a document along with
     its position and scope (:class:`ChunkType`). Chunks are typically produced
-    by server-side ingestion and are the unit of work many operators run on.
+    by server-side ingestion and are the unit of work many tasks run on.
 
     ``document_offset`` is the chunk's ordinal position within the document;
     ``start_char_idx`` / ``end_char_idx`` optionally locate it in the

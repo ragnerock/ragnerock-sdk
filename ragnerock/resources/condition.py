@@ -1,4 +1,4 @@
-"""Condition grammar for workflow node execution gates.
+"""Condition grammar for agent node execution gates.
 
 Users express conditions as a MongoDB-style dict, keyed by a field path from
 the upstream execution context. The SDK compiles that dict into the server's
@@ -122,7 +122,7 @@ def compile_condition(spec: Mapping[str, Any]) -> dict[str, Any]:
 
     Returns:
         dict[str, Any]: A server-shaped condition payload, ready to send as
-        the ``condition`` body of a workflow node.
+        the ``condition`` body of an agent node.
 
     Raises:
         ValidationError: ``spec`` is malformed — empty, wrong type, uses an

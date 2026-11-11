@@ -13,7 +13,7 @@ from pytest_httpx import HTTPXMock
 from ragnerock.client import RagnerockClient
 from ragnerock.client.assignments import (
     STREAM_READ_TIMEOUT_SECONDS,
-    AgentQuestionStatus,
+    AssignmentQuestionStatus,
     AssignmentCellEvent,
     AssignmentResponse,
     AssignmentStatus,
@@ -37,7 +37,7 @@ def _assignment(**overrides: Any) -> dict[str, Any]:
         "id": str(uuid.uuid4()),
         "account_id": str(uuid.uuid4()),
         "project_id": PROJECT_ID,
-        "agent_id": str(uuid.uuid4()),
+        "task_id": str(uuid.uuid4()),
         "notebook_id": str(uuid.uuid4()),
         "status": "queued",
         "turn_state": "ended",
@@ -64,8 +64,8 @@ def _question(**overrides: Any) -> dict[str, Any]:
         "account_id": str(uuid.uuid4()),
         "project_id": PROJECT_ID,
         "assignment_id": str(uuid.uuid4()),
-        "agent_id": str(uuid.uuid4()),
-        "agent_name": "Filing reviewer",
+        "task_id": str(uuid.uuid4()),
+        "task_name": "Filing reviewer",
         "notebook_id": str(uuid.uuid4()),
         "user_id": str(uuid.uuid4()),
         "question": "Which fiscal year?",
@@ -85,10 +85,10 @@ def _sse(*lines: str) -> bytes:
 
 
 class TestCreate:
-    def test_the_body_names_the_agent_the_task_and_the_rest(
+    def test_the_body_names_the_task_the_instructions_and_the_rest(
         self, client: RagnerockClient, httpx_mock: HTTPXMock
     ) -> None:
-        agent_id, schema_id = uuid.uuid4(), uuid.uuid4()
+        task_id, schema_id = uuid.uuid4(), uuid.uuid4()
         deadline = datetime(2026, 10, 5, 9, tzinfo=UTC)
         httpx_mock.add_response(
             method="POST", url=url(ASSIGNMENTS), status_code=201, json=_assignment()
@@ -96,15 +96,16 @@ class TestCreate:
 
         created = client.assignments.create(
             uuid.UUID(PROJECT_ID),
-            agent_id=agent_id,
-            task="Find the counterparties.",
+            task_id=task_id,
+            instructions="Find the counterparties.",
             output_schema_id=schema_id,
             deadline=deadline,
         )
 
         body = last_json(httpx_mock)
-        assert body["agent_id"] == str(agent_id)
-        assert body["task"] == "Find the counterparties."
+        assert body["task_id"] == str(task_id)
+        assert body["instructions"] == "Find the counterparties."
+        assert "task" not in body
         assert body["output_schema_id"] == str(schema_id)
         assert datetime.fromisoformat(body["deadline"]) == deadline
         assert "parent_id" not in body
@@ -116,8 +117,8 @@ class TestCreate:
         with pytest.raises(ValueError, match="timezone-aware"):
             client.assignments.create(
                 uuid.UUID(PROJECT_ID),
-                agent_id=uuid.uuid4(),
-                task="Find the counterparties.",
+                task_id=uuid.uuid4(),
+                instructions="Find the counterparties.",
                 deadline=datetime(2026, 10, 5, 9),  # noqa: DTZ001 - naive on purpose
             )
 
@@ -126,23 +127,23 @@ class TestCreate:
     def test_create_carries_a_budget(
         self, client: RagnerockClient, httpx_mock: HTTPXMock
     ) -> None:
-        agent_id = uuid.uuid4()
+        task_id = uuid.uuid4()
         httpx_mock.add_response(method="POST", url=url(ASSIGNMENTS), json=_assignment())
 
         client.assignments.create(
-            uuid.UUID(PROJECT_ID), agent_id=agent_id, task="Check.", budget=40_000
+            uuid.UUID(PROJECT_ID), task_id=task_id, instructions="Check.", budget=40_000
         )
 
         assert last_json(httpx_mock) == {
-            "agent_id": str(agent_id),
-            "task": "Check.",
+            "task_id": str(task_id),
+            "instructions": "Check.",
             "budget_cost_weighted_tokens": 40_000,
         }
 
     def test_dispatch_gives_a_running_assignment_a_child(
         self, client: RagnerockClient, httpx_mock: HTTPXMock
     ) -> None:
-        parent_id, agent_id = uuid.uuid4(), uuid.uuid4()
+        parent_id, task_id = uuid.uuid4(), uuid.uuid4()
         httpx_mock.add_response(
             method="POST",
             url=url(ASSIGNMENTS),
@@ -152,14 +153,14 @@ class TestCreate:
         child = client.assignments.dispatch(
             uuid.UUID(PROJECT_ID),
             parent_id=parent_id,
-            agent_id=agent_id,
-            task="Review counterparty A.",
+            task_id=task_id,
+            instructions="Review counterparty A.",
             budget=5_000,
         )
 
         assert last_json(httpx_mock) == {
-            "agent_id": str(agent_id),
-            "task": "Review counterparty A.",
+            "task_id": str(task_id),
+            "instructions": "Review counterparty A.",
             "parent_id": str(parent_id),
             "budget_cost_weighted_tokens": 5_000,
         }
@@ -206,6 +207,21 @@ class TestReading:
         assert parsed.id == derived
         assert parsed.parent_id == derived
 
+    def test_a_paused_built_in_assignment_parses(self) -> None:
+        parsed = AssignmentResponse.model_validate(
+            _assignment(
+                task_id=None,
+                builtin_task="research_assistant",
+                status="paused",
+                status_reason="paused",
+            )
+        )
+
+        assert parsed.task_id is None
+        assert parsed.builtin_task == "research_assistant"
+        assert parsed.status == AssignmentStatus.PAUSED
+        assert AssignmentStatus.PAUSED.value == "paused"
+
 
 class TestStopping:
     @pytest.mark.parametrize(
@@ -245,20 +261,20 @@ class TestQuestions:
     ) -> None:
         httpx_mock.add_response(
             method="GET",
-            url=url("/api/agent-questions?skip=0&limit=50&status=open"),
+            url=url("/api/assignment-questions?skip=0&limit=50&status=open"),
             json={"questions": [_question()], "total": 1, "skip": 0, "limit": 50},
         )
 
         listed = client.assignments.questions()
 
         assert last_params(httpx_mock)["status"] == "open"
-        assert listed.questions[0].status == AgentQuestionStatus.OPEN
+        assert listed.questions[0].status == AssignmentQuestionStatus.OPEN
         assert listed.questions[0].question == "Which fiscal year?"
 
     def test_all_of_them(self, client: RagnerockClient, httpx_mock: HTTPXMock) -> None:
         httpx_mock.add_response(
             method="GET",
-            url=url("/api/agent-questions?skip=0&limit=50"),
+            url=url("/api/assignment-questions?skip=0&limit=50"),
             json={"questions": [], "total": 0, "skip": 0, "limit": 50},
         )
 
@@ -271,11 +287,11 @@ class TestQuestions:
     ) -> None:
         httpx_mock.add_response(
             method="GET",
-            url=url("/api/agent-questions?skip=0&limit=50&status=expired"),
+            url=url("/api/assignment-questions?skip=0&limit=50&status=expired"),
             json={"questions": [], "total": 0, "skip": 0, "limit": 50},
         )
 
-        client.assignments.questions(status=AgentQuestionStatus.EXPIRED)
+        client.assignments.questions(status=AssignmentQuestionStatus.EXPIRED)
 
         assert last_params(httpx_mock)["status"] == "expired"
 
@@ -285,7 +301,9 @@ class TestQuestions:
         question_id = uuid.uuid4()
         httpx_mock.add_response(
             method="POST",
-            url=url(f"/api/projects/{PROJECT_ID}/agent-questions/{question_id}/answer"),
+            url=url(
+                f"/api/projects/{PROJECT_ID}/assignment-questions/{question_id}/answer"
+            ),
             json=_question(id=str(question_id), status="answered", answer="FY2025."),
         )
 
@@ -295,10 +313,10 @@ class TestQuestions:
 
         assert last_json(httpx_mock) == {"answer": "FY2025."}
         assert result.answer == "FY2025."
-        assert result.status == AgentQuestionStatus.ANSWERED
+        assert result.status == AssignmentQuestionStatus.ANSWERED
 
 
-class TestAnAgentsWork:
+class TestATasksWork:
     def _page(self, **overrides: Any) -> dict[str, Any]:
         page: dict[str, Any] = {
             "assignments": [],
@@ -316,16 +334,16 @@ class TestAnAgentsWork:
         page.update(overrides)
         return page
 
-    def test_list_for_agent_filters_by_status_and_reads_the_counts(
+    def test_list_for_task_filters_by_status_and_reads_the_counts(
         self, client: RagnerockClient, httpx_mock: HTTPXMock
     ) -> None:
-        agent_id = uuid.uuid4()
-        path = f"/api/projects/{PROJECT_ID}/agents/{agent_id}/assignments"
+        task_id = uuid.uuid4()
+        path = f"/api/projects/{PROJECT_ID}/tasks/{task_id}/assignments"
         httpx_mock.add_response(
             method="GET",
             url=url(f"{path}?skip=0&limit=50&status=queued&status=running"),
             json=self._page(
-                assignments=[_assignment(agent_id=str(agent_id))],
+                assignments=[_assignment(task_id=str(task_id))],
                 total=1,
                 counts={s.value: 0 for s in AssignmentStatus}
                 | {"queued": 1, "done": 4},
@@ -337,9 +355,9 @@ class TestAnAgentsWork:
             ),
         )
 
-        listed = client.assignments.list_for_agent(
+        listed = client.assignments.list_for_task(
             uuid.UUID(PROJECT_ID),
-            agent_id,
+            task_id,
             status=[AssignmentStatus.QUEUED, "running"],
         )
 
@@ -354,24 +372,24 @@ class TestAnAgentsWork:
     def test_every_status_when_none_is_named(
         self, client: RagnerockClient, httpx_mock: HTTPXMock
     ) -> None:
-        agent_id = uuid.uuid4()
+        task_id = uuid.uuid4()
         httpx_mock.add_response(
             method="GET",
             url=url(
-                f"/api/projects/{PROJECT_ID}/agents/{agent_id}/assignments"
+                f"/api/projects/{PROJECT_ID}/tasks/{task_id}/assignments"
                 "?skip=0&limit=50"
             ),
             json=self._page(),
         )
 
-        client.assignments.list_for_agent(uuid.UUID(PROJECT_ID), agent_id)
+        client.assignments.list_for_task(uuid.UUID(PROJECT_ID), task_id)
 
         assert "status" not in last_params(httpx_mock)
 
     def test_threads_reads_both_kinds(
         self, client: RagnerockClient, httpx_mock: HTTPXMock
     ) -> None:
-        agent_id = uuid.uuid4()
+        task_id = uuid.uuid4()
         page = {
             "threads": [
                 {
@@ -400,12 +418,12 @@ class TestAnAgentsWork:
         httpx_mock.add_response(
             method="GET",
             url=url(
-                f"/api/projects/{PROJECT_ID}/agents/{agent_id}/threads?skip=0&limit=50"
+                f"/api/projects/{PROJECT_ID}/tasks/{task_id}/threads?skip=0&limit=50"
             ),
             json=page,
         )
 
-        listed = client.assignments.threads(uuid.UUID(PROJECT_ID), agent_id)
+        listed = client.assignments.threads(uuid.UUID(PROJECT_ID), task_id)
 
         assert [thread.kind for thread in listed.threads] == [
             "transcript",

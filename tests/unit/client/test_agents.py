@@ -1,4 +1,4 @@
-"""Tests for ``client.workflows`` and ``client.workflows.change_requests``."""
+"""Tests for ``client.agents`` and ``client.agents.change_requests``."""
 
 from __future__ import annotations
 
@@ -8,14 +8,15 @@ from uuid import UUID
 import pytest
 
 from ragnerock.client import RagnerockClient
-from ragnerock.client.workflows import (
+from ragnerock.client.agents import (
     ChangeRequestStatus,
-    tool_call_resource,
-    web_fetch_resource,
+    DraftSharedTasks,
+    tool_call_input,
+    web_fetch_input,
 )
 from ragnerock.errors import AuthenticationError, RagnerockError
+from ragnerock.resources.agent import AgentSchedule
 from ragnerock.resources.document import FileType
-from ragnerock.resources.workflow import WorkflowSchedule
 from tests.unit.client.conftest import (
     PROJECT_ID,
     last_json,
@@ -24,19 +25,25 @@ from tests.unit.client.conftest import (
     url,
 )
 
-WORKFLOW_ID = UUID("00000000-0000-0000-0000-000000000701")
+AGENT_ID = UUID("00000000-0000-0000-0000-000000000701")
 NODE_ID = UUID("00000000-0000-0000-0000-000000000702")
-OPERATOR_ID = UUID("00000000-0000-0000-0000-000000000601")
+TASK_ID = UUID("00000000-0000-0000-0000-000000000601")
 REQUEST_ID = UUID("00000000-0000-0000-0000-000000000901")
 PROPOSAL_ID = UUID("00000000-0000-0000-0000-000000000902")
-WF = f"/api/workflows/{WORKFLOW_ID}"
-CR = f"{WF}/change-requests/{REQUEST_ID}"
+DRAFT_ID = UUID("00000000-0000-0000-0000-000000000703")
+RUN_ID = UUID("00000000-0000-0000-0000-000000000801")
+PROVENANCE_ID = UUID("00000000-0000-0000-0000-000000000802")
+BACKFILL_RUN_ID = UUID("00000000-0000-0000-0000-000000000811")
+BACKFILL_PROVENANCE_ID = UUID("00000000-0000-0000-0000-000000000812")
+AG = f"/api/agents/{AGENT_ID}"
+CR = f"{AG}/change-requests/{REQUEST_ID}"
+DRAFT = f"/api/agents/{DRAFT_ID}/draft-changes"
 
 
-def _workflow(**overrides: Any) -> dict[str, Any]:
-    """A workflow response body."""
+def _agent(**overrides: Any) -> dict[str, Any]:
+    """An agent response body."""
     body: dict[str, Any] = {
-        "id": str(WORKFLOW_ID),
+        "id": str(AGENT_ID),
         "project_id": PROJECT_ID,
         "name": "ingest",
         "description": None,
@@ -53,13 +60,13 @@ def _workflow(**overrides: Any) -> dict[str, Any]:
 
 
 def _node(**overrides: Any) -> dict[str, Any]:
-    """A workflow node response body."""
+    """An agent node response body."""
     body: dict[str, Any] = {
         "id": str(NODE_ID),
-        "workflow_id": str(WORKFLOW_ID),
-        "operator_id": str(OPERATOR_ID),
-        "operator_name": "scout",
-        "operator_jsonschema": {},
+        "agent_id": str(AGENT_ID),
+        "task_id": str(TASK_ID),
+        "task_name": "scout",
+        "task_jsonschema": {},
         "condition": None,
         "persist": True,
         "on_error": "SKIP_NODE",
@@ -83,12 +90,12 @@ def _change_request(**overrides: Any) -> dict[str, Any]:
         "id": str(REQUEST_ID),
         "account_id": "00000000-0000-0000-0000-0000000000bb",
         "project_id": PROJECT_ID,
-        "workflow_id": str(WORKFLOW_ID),
-        "trigger_operator_id": str(OPERATOR_ID),
-        "trigger_operator_name": "new_form_type",
+        "agent_id": str(AGENT_ID),
+        "trigger_task_id": str(TASK_ID),
+        "trigger_task_name": "new_form_type",
         "status": "pending",
         "document_count": 3,
-        "opened_by_job_id": "00000000-0000-0000-0000-0000000000cc",
+        "opened_by_run_id": "00000000-0000-0000-0000-0000000000cc",
         "created_at": "2026-09-30T00:00:00Z",
         "updated_at": "2026-09-30T00:00:00Z",
     }
@@ -106,7 +113,7 @@ def _proposal(**overrides: Any) -> dict[str, Any]:
         "summary": "Add a say-on-pay agent",
         "validation_errors": [],
         "created_at": "2026-09-30T00:00:00Z",
-        "proposed_manifest": [{"kind": "Workflow"}],
+        "proposed_manifest": [{"kind": "Agent"}],
         "diff": {"objects": [], "nodes": [], "edges": [], "warnings": []},
     }
     body.update(overrides)
@@ -119,7 +126,8 @@ def _document(**overrides: Any) -> dict[str, Any]:
         "id": "00000000-0000-0000-0000-000000000903",
         "change_request_id": str(REQUEST_ID),
         "document_id": "00000000-0000-0000-0000-000000000101",
-        "job_id": "00000000-0000-0000-0000-000000000801",
+        "run_id": str(RUN_ID),
+        "provenance_id": str(PROVENANCE_ID),
         "signal": "unknown form 8-K/A",
         "created_at": "2026-09-30T00:00:00Z",
     }
@@ -127,53 +135,54 @@ def _document(**overrides: Any) -> dict[str, Any]:
     return body
 
 
-class TestWorkflowCrud:
+class TestAgentCrud:
     def test_list(self, httpx_mock: Any, client: RagnerockClient) -> None:
         httpx_mock.add_response(
             method="GET",
-            url=url(f"/api/workflows/?project_ids={PROJECT_ID}&skip=0&limit=100"),
+            url=url(f"/api/agents/?project_ids={PROJECT_ID}&skip=0&limit=100"),
             json={
-                "workflows": [_workflow(node_count=2)],
+                "agents": [_agent(node_count=2)],
                 "total": 1,
                 "skip": 0,
                 "limit": 100,
             },
         )
-        page = client.workflows.list(project_ids=PROJECT_ID)
+        page = client.agents.list(project_ids=PROJECT_ID)
         assert page.total == 1
-        assert page.workflows[0].id == WORKFLOW_ID
-        assert page.workflows[0].node_count == 2
+        assert page.agents[0].id == AGENT_ID
+        assert page.agents[0].node_count == 2
 
     def test_list_without_projects_omits_the_filter(
         self, httpx_mock: Any, client: RagnerockClient
     ) -> None:
         httpx_mock.add_response(
             method="GET",
-            url=url("/api/workflows/?skip=10&limit=5"),
-            json={"workflows": [], "total": 0, "skip": 10, "limit": 5},
+            url=url("/api/agents/?skip=10&limit=5"),
+            json={"agents": [], "total": 0, "skip": 10, "limit": 5},
         )
-        client.workflows.list(skip=10, limit=5)
+        client.agents.list(skip=10, limit=5)
         assert "project_ids" not in last_params(httpx_mock)
 
     def test_get_parses_nodes_inputs_outputs_and_schedule(
         self, httpx_mock: Any, client: RagnerockClient
     ) -> None:
-        sink_id = "00000000-0000-0000-0000-000000000a01"
-        resource_id = "00000000-0000-0000-0000-000000000b01"
+        output_id = "00000000-0000-0000-0000-000000000a01"
+        input_id = "00000000-0000-0000-0000-000000000b01"
         httpx_mock.add_response(
             method="GET",
-            url=url(WF),
-            json=_workflow(
+            url=url(AG),
+            json=_agent(
                 nodes=[
                     {
                         "id": str(NODE_ID),
-                        "operator_id": str(OPERATOR_ID),
-                        "operator_name": "scout",
-                        "operator_jsonschema": {},
-                        "operator_chunk_type": 0,
+                        "task_id": str(TASK_ID),
+                        "task_name": "scout",
+                        "task_jsonschema": {},
+                        "task_chunk_type": 0,
+                        "task_kind": "LLM",
                         "condition": None,
                         "persist": True,
-                        "on_error": "SKIP_NODE",
+                        "on_error": "FAIL_RUN",
                         "annotations_only": False,
                         "condition_mode": None,
                         "position_x": 1,
@@ -181,25 +190,27 @@ class TestWorkflowCrud:
                         "position_z": None,
                         "in_nodes": [],
                         "out_nodes": [],
+                        "target_input_id": input_id,
+                        "context_input_ids": [],
                         "required_functions": ["crm__get_customer"],
                     }
                 ],
-                resources=[
+                inputs=[
                     {
-                        "id": resource_id,
+                        "id": input_id,
                         "name": "input",
                         "type": "file",
                         "position": 0,
                     }
                 ],
-                sinks=[
+                outputs=[
                     {
-                        "id": sink_id,
+                        "id": output_id,
                         "name": "table",
                         "kind": "artifact",
                         "position": 0,
                         "node_id": "00000000-0000-0000-0000-000000000a02",
-                        "operator_id": "00000000-0000-0000-0000-000000000a03",
+                        "task_id": "00000000-0000-0000-0000-000000000a03",
                         "table_name": "table",
                         "parent_node_ids": [str(NODE_ID)],
                         "config": {"kind": "artifact", "format": "csv"},
@@ -211,26 +222,30 @@ class TestWorkflowCrud:
                 pending_change_request_count=2,
             ),
         )
-        wf = client.workflows.get(WORKFLOW_ID)
-        assert wf.nodes[0].required_functions == ["crm__get_customer"]
-        assert wf.nodes[0].position_x == 1
-        assert wf.resources[0].name == "input"
-        assert str(wf.sinks[0].id) == sink_id
-        assert wf.sinks[0].config["format"] == "csv"
-        assert wf.schedule == WorkflowSchedule(cron="0 6 * * *")
-        assert wf.schedule_state is not None
-        assert wf.schedule_state.paused is True
-        assert wf.pending_change_request_count == 2
-        assert wf.created_at is not None and wf.created_at.tzinfo is not None
+        agent = client.agents.get(AGENT_ID)
+        assert agent.nodes[0].task_id == TASK_ID
+        assert agent.nodes[0].task_name == "scout"
+        assert agent.nodes[0].task_kind == "LLM"
+        assert agent.nodes[0].on_error == "FAIL_RUN"
+        assert agent.nodes[0].target_input_id == UUID(input_id)
+        assert agent.nodes[0].required_functions == ["crm__get_customer"]
+        assert agent.nodes[0].position_x == 1
+        assert agent.inputs[0].name == "input"
+        assert str(agent.outputs[0].id) == output_id
+        assert agent.outputs[0].config["format"] == "csv"
+        assert agent.schedule == AgentSchedule(cron="0 6 * * *")
+        assert agent.schedule_state is not None
+        assert agent.schedule_state.paused is True
+        assert agent.pending_change_request_count == 2
+        assert agent.shadow_of_id is None
+        assert agent.created_at is not None and agent.created_at.tzinfo is not None
 
     def test_create_sends_defaults(
         self, httpx_mock: Any, client: RagnerockClient
     ) -> None:
-        httpx_mock.add_response(
-            method="POST", url=url("/api/workflows/"), json=_workflow()
-        )
-        wf = client.workflows.create(project_id=UUID(PROJECT_ID), name="ingest")
-        assert wf.id == WORKFLOW_ID
+        httpx_mock.add_response(method="POST", url=url("/api/agents/"), json=_agent())
+        agent = client.agents.create(project_id=UUID(PROJECT_ID), name="ingest")
+        assert agent.id == AGENT_ID
         assert last_json(httpx_mock) == {
             "project_id": PROJECT_ID,
             "name": "ingest",
@@ -239,24 +254,23 @@ class TestWorkflowCrud:
             "is_draft": False,
         }
 
-    def test_create_with_resources_and_schedule(
+    def test_create_with_inputs_and_schedule(
         self, httpx_mock: Any, client: RagnerockClient
     ) -> None:
-        httpx_mock.add_response(
-            method="POST", url=url("/api/workflows/"), json=_workflow()
-        )
-        client.workflows.create(
+        httpx_mock.add_response(method="POST", url=url("/api/agents/"), json=_agent())
+        client.agents.create(
             project_id=UUID(PROJECT_ID),
             name="daily",
             description="Daily pull",
             is_draft=True,
-            resources=[web_fetch_resource("page", "https://example.com/page")],
-            schedule=WorkflowSchedule(cron="0 6 * * *", timezone="America/New_York"),
+            inputs=[web_fetch_input("page", "https://example.com/page")],
+            schedule=AgentSchedule(cron="0 6 * * *", timezone="America/New_York"),
         )
         body = last_json(httpx_mock)
         assert body["description"] == "Daily pull"
         assert body["is_draft"] is True
-        assert body["resources"] == [
+        assert "resources" not in body
+        assert body["inputs"] == [
             {
                 "name": "page",
                 "type": "file",
@@ -277,25 +291,21 @@ class TestWorkflowCrud:
     def test_create_with_no_inputs_sends_an_empty_list(
         self, httpx_mock: Any, client: RagnerockClient
     ) -> None:
-        httpx_mock.add_response(
-            method="POST", url=url("/api/workflows/"), json=_workflow()
-        )
-        client.workflows.create(project_id=UUID(PROJECT_ID), name="x", resources=[])
-        assert last_json(httpx_mock)["resources"] == []
+        httpx_mock.add_response(method="POST", url=url("/api/agents/"), json=_agent())
+        client.agents.create(project_id=UUID(PROJECT_ID), name="x", inputs=[])
+        assert last_json(httpx_mock)["inputs"] == []
 
     def test_update_sends_only_given_fields(
         self, httpx_mock: Any, client: RagnerockClient
     ) -> None:
-        httpx_mock.add_response(
-            method="PUT", url=url(WF), json=_workflow(is_active=False)
-        )
-        wf = client.workflows.update(WORKFLOW_ID, is_active=False)
+        httpx_mock.add_response(method="PUT", url=url(AG), json=_agent(is_active=False))
+        agent = client.agents.update(AGENT_ID, is_active=False)
         assert last_json(httpx_mock) == {"is_active": False}
-        assert wf.is_active is False
+        assert agent.is_active is False
 
     def test_delete(self, httpx_mock: Any, client: RagnerockClient) -> None:
-        httpx_mock.add_response(method="DELETE", url=url(WF), status_code=204)
-        assert client.workflows.delete(WORKFLOW_ID) is None
+        httpx_mock.add_response(method="DELETE", url=url(AG), status_code=204)
+        assert client.agents.delete(AGENT_ID) is None
         assert last_request(httpx_mock).method == "DELETE"
 
 
@@ -303,11 +313,11 @@ class TestNodes:
     def test_add_node_sends_empty_lists_by_default(
         self, httpx_mock: Any, client: RagnerockClient
     ) -> None:
-        httpx_mock.add_response(method="PUT", url=url(f"{WF}/nodes/"), json=_node())
-        node = client.workflows.add_node(WORKFLOW_ID, operator_id=OPERATOR_ID)
+        httpx_mock.add_response(method="PUT", url=url(f"{AG}/nodes/"), json=_node())
+        node = client.agents.add_node(AGENT_ID, task_id=TASK_ID)
         assert node.id == NODE_ID
         assert last_json(httpx_mock) == {
-            "operator_id": str(OPERATOR_ID),
+            "task_id": str(TASK_ID),
             "persist": True,
             "on_error": "SKIP_NODE",
             "max_retries": 0,
@@ -325,18 +335,18 @@ class TestNodes:
         decorators = [{"type": "TOKEN_BUDGET", "max_tokens": 1000}]
         httpx_mock.add_response(
             method="PUT",
-            url=url(f"{WF}/nodes/"),
+            url=url(f"{AG}/nodes/"),
             json=_node(
                 required_functions=["crm__get_customer"],
                 decorators=decorators,
                 in_nodes=[str(upstream)],
             ),
         )
-        node = client.workflows.add_node(
-            WORKFLOW_ID,
-            operator_id=OPERATOR_ID,
+        node = client.agents.add_node(
+            AGENT_ID,
+            task_id=TASK_ID,
             condition={"score": {"$gt": 0.5}},
-            on_error="FAIL_JOB",
+            on_error="FAIL_RUN",
             decorators=decorators,
             position_x=10,
             position_y=20,
@@ -347,7 +357,7 @@ class TestNodes:
         )
         body = last_json(httpx_mock)
         assert body["condition"] == {"score": {"$gt": 0.5}}
-        assert body["on_error"] == "FAIL_JOB"
+        assert body["on_error"] == "FAIL_RUN"
         assert body["decorators"] == decorators
         assert (body["position_x"], body["position_y"], body["position_z"]) == (
             10,
@@ -374,11 +384,11 @@ class TestNodes:
     ) -> None:
         httpx_mock.add_response(
             method="PUT",
-            url=url(f"{WF}/nodes/{NODE_ID}"),
+            url=url(f"{AG}/nodes/{NODE_ID}"),
             json=_node(required_functions=sent or []),
         )
-        client.workflows.update_node(
-            WORKFLOW_ID, NODE_ID, persist=False, required_functions=given
+        client.agents.update_node(
+            AGENT_ID, NODE_ID, persist=False, required_functions=given
         )
         body = last_json(httpx_mock)
         assert body.get("required_functions") == sent
@@ -390,10 +400,10 @@ class TestNodes:
     ) -> None:
         downstream = UUID("00000000-0000-0000-0000-0000000007b1")
         httpx_mock.add_response(
-            method="PUT", url=url(f"{WF}/nodes/{NODE_ID}"), json=_node()
+            method="PUT", url=url(f"{AG}/nodes/{NODE_ID}"), json=_node()
         )
-        client.workflows.update_node(
-            WORKFLOW_ID,
+        client.agents.update_node(
+            AGENT_ID,
             NODE_ID,
             clear_condition=True,
             out_node_ids=[downstream],
@@ -406,29 +416,63 @@ class TestNodes:
             "replay_policy": "never",
         }
 
+    def test_update_node_sends_input_wiring(
+        self, httpx_mock: Any, client: RagnerockClient
+    ) -> None:
+        target = UUID("00000000-0000-0000-0000-000000000b01")
+        context = UUID("00000000-0000-0000-0000-000000000b02")
+        httpx_mock.add_response(
+            method="PUT",
+            url=url(f"{AG}/nodes/{NODE_ID}"),
+            json=_node(context_input_ids=[str(context)]),
+        )
+        node = client.agents.update_node(
+            AGENT_ID,
+            NODE_ID,
+            task_id=TASK_ID,
+            target_input_id=target,
+            context_input_ids=[context],
+        )
+        assert last_json(httpx_mock) == {
+            "task_id": str(TASK_ID),
+            "target_input_id": str(target),
+            "context_input_ids": [str(context)],
+        }
+        assert node.task_id == TASK_ID
+        assert node.context_input_ids == [context]
+
+    def test_update_node_clears_the_target_input(
+        self, httpx_mock: Any, client: RagnerockClient
+    ) -> None:
+        httpx_mock.add_response(
+            method="PUT", url=url(f"{AG}/nodes/{NODE_ID}"), json=_node()
+        )
+        client.agents.update_node(AGENT_ID, NODE_ID, clear_target_input=True)
+        assert last_json(httpx_mock) == {"clear_target_input": True}
+
     def test_update_node_omits_unset_flags(
         self, httpx_mock: Any, client: RagnerockClient
     ) -> None:
         httpx_mock.add_response(
-            method="PUT", url=url(f"{WF}/nodes/{NODE_ID}"), json=_node()
+            method="PUT", url=url(f"{AG}/nodes/{NODE_ID}"), json=_node()
         )
-        client.workflows.update_node(WORKFLOW_ID, NODE_ID, max_retries=2)
+        client.agents.update_node(AGENT_ID, NODE_ID, max_retries=2)
         assert last_json(httpx_mock) == {"max_retries": 2}
 
     def test_delete_node(self, httpx_mock: Any, client: RagnerockClient) -> None:
         httpx_mock.add_response(
-            method="DELETE", url=url(f"{WF}/nodes/{NODE_ID}"), status_code=204
+            method="DELETE", url=url(f"{AG}/nodes/{NODE_ID}"), status_code=204
         )
-        assert client.workflows.delete_node(WORKFLOW_ID, NODE_ID) is None
+        assert client.agents.delete_node(AGENT_ID, NODE_ID) is None
 
     def test_test_condition(self, httpx_mock: Any, client: RagnerockClient) -> None:
         httpx_mock.add_response(
             method="POST",
-            url=url(f"{WF}/nodes/{NODE_ID}/test-condition"),
+            url=url(f"{AG}/nodes/{NODE_ID}/test-condition"),
             json={"result": True, "evaluation_trace": "score > 0.5"},
         )
-        result = client.workflows.test_condition(
-            WORKFLOW_ID, NODE_ID, sample_context={"scout": {"score": 0.9}}
+        result = client.agents.test_condition(
+            AGENT_ID, NODE_ID, sample_context={"scout": {"score": 0.9}}
         )
         assert last_json(httpx_mock) == {"sample_context": {"scout": {"score": 0.9}}}
         assert result.result is True
@@ -436,34 +480,35 @@ class TestNodes:
 
 
 class TestInputsAndOutputs:
-    def test_set_resources_puts_the_whole_set(
+    def test_set_inputs_puts_the_whole_set(
         self, httpx_mock: Any, client: RagnerockClient
     ) -> None:
         httpx_mock.add_response(
-            method="PUT", url=url(f"{WF}/resources"), json=_workflow(resources=[])
+            method="PUT", url=url(f"{AG}/inputs"), json=_agent(inputs=[])
         )
-        spec = tool_call_resource(
+        spec = tool_call_input(
             "activity",
             tool="pendo",
             function="get_events",
             arguments={"since": "{{ schedule.window_start }}"},
             file_type=FileType.CSV,
         )
-        client.workflows.set_resources(WORKFLOW_ID, resources=[spec])
-        assert last_json(httpx_mock) == {"resources": [spec]}
+        response = client.agents.set_inputs(AGENT_ID, inputs=[spec])
+        assert last_json(httpx_mock) == {"inputs": [spec]}
+        assert response.inputs == []
 
-    def test_set_sinks_puts_the_whole_set(
+    def test_set_outputs_puts_the_whole_set(
         self, httpx_mock: Any, client: RagnerockClient
     ) -> None:
-        httpx_mock.add_response(method="PUT", url=url(f"{WF}/sinks"), json=_workflow())
-        sink = {
+        httpx_mock.add_response(method="PUT", url=url(f"{AG}/outputs"), json=_agent())
+        output = {
             "name": "table",
             "parent_node_ids": [NODE_ID],
             "config": {"kind": "artifact", "format": "csv"},
         }
-        response = client.workflows.set_sinks(WORKFLOW_ID, sinks=[sink])
+        response = client.agents.set_outputs(AGENT_ID, outputs=[output])
         assert last_json(httpx_mock) == {
-            "sinks": [
+            "outputs": [
                 {
                     "name": "table",
                     "parent_node_ids": [str(NODE_ID)],
@@ -471,14 +516,14 @@ class TestInputsAndOutputs:
                 }
             ]
         }
-        assert response.sinks == []
+        assert response.outputs == []
 
     def test_test_fetch_sends_the_source(
         self, httpx_mock: Any, client: RagnerockClient
     ) -> None:
         httpx_mock.add_response(
             method="POST",
-            url=url(f"{WF}/resources/test-fetch"),
+            url=url(f"{AG}/inputs/test-fetch"),
             json={
                 "ok": True,
                 "content_type": "text/csv",
@@ -487,15 +532,13 @@ class TestInputsAndOutputs:
                 "resolved_arguments": {"since": "2026-10-26T00:00:00Z"},
             },
         )
-        source = tool_call_resource(
+        source = tool_call_input(
             "activity",
             tool="pendo",
             function="get_events",
             arguments={"since": "{{ schedule.window_start }}"},
         )["source"]
-        result = client.workflows.test_fetch(
-            WORKFLOW_ID, source=source, window_hours=48
-        )
+        result = client.agents.test_fetch(AGENT_ID, source=source, window_hours=48)
         assert last_json(httpx_mock) == {"source": source, "window_hours": 48}
         assert result.ok is True
         assert result.resolved_arguments == {"since": "2026-10-26T00:00:00Z"}
@@ -506,11 +549,11 @@ class TestInputsAndOutputs:
     ) -> None:
         httpx_mock.add_response(
             method="POST",
-            url=url(f"{WF}/resources/test-fetch"),
+            url=url(f"{AG}/inputs/test-fetch"),
             json={"ok": False, "error": "the tool's server refused the call"},
         )
-        result = client.workflows.test_fetch(
-            WORKFLOW_ID, source={"kind": "web_fetch", "url": "https://example.com"}
+        result = client.agents.test_fetch(
+            AGENT_ID, source={"kind": "web_fetch", "url": "https://example.com"}
         )
         assert last_json(httpx_mock)["window_hours"] == 24
         assert result.ok is False
@@ -523,11 +566,11 @@ class TestSchedules:
     ) -> None:
         httpx_mock.add_response(
             method="PUT",
-            url=url(f"{WF}/schedule"),
-            json=_workflow(schedule={"cron": "0 6 * * *", "enabled": False}),
+            url=url(f"{AG}/schedule"),
+            json=_agent(schedule={"cron": "0 6 * * *", "enabled": False}),
         )
-        wf = client.workflows.set_schedule(
-            WORKFLOW_ID,
+        agent = client.agents.set_schedule(
+            AGENT_ID,
             cron="0 6 * * *",
             timezone="America/New_York",
             enabled=False,
@@ -539,16 +582,14 @@ class TestSchedules:
             "enabled": False,
             "lookback": 3600,
         }
-        assert wf.schedule is not None
-        assert wf.schedule.enabled is False
+        assert agent.schedule is not None
+        assert agent.schedule.enabled is False
 
     def test_set_schedule_defaults(
         self, httpx_mock: Any, client: RagnerockClient
     ) -> None:
-        httpx_mock.add_response(
-            method="PUT", url=url(f"{WF}/schedule"), json=_workflow()
-        )
-        client.workflows.set_schedule(WORKFLOW_ID, cron="0 6 * * *")
+        httpx_mock.add_response(method="PUT", url=url(f"{AG}/schedule"), json=_agent())
+        client.agents.set_schedule(AGENT_ID, cron="0 6 * * *")
         assert last_json(httpx_mock) == {
             "cron": "0 6 * * *",
             "timezone": "UTC",
@@ -558,7 +599,7 @@ class TestSchedules:
     @pytest.mark.parametrize(
         "schedule",
         [
-            WorkflowSchedule(cron="0 6 * * 1-5", timezone="America/New_York"),
+            AgentSchedule(cron="0 6 * * 1-5", timezone="America/New_York"),
             {"cron": "0 6 * * 1-5", "timezone": "America/New_York", "enabled": True},
         ],
         ids=["model", "dict"],
@@ -567,12 +608,10 @@ class TestSchedules:
         self,
         httpx_mock: Any,
         client: RagnerockClient,
-        schedule: WorkflowSchedule | dict[str, Any],
+        schedule: AgentSchedule | dict[str, Any],
     ) -> None:
-        httpx_mock.add_response(
-            method="PUT", url=url(f"{WF}/schedule"), json=_workflow()
-        )
-        client.workflows.set_schedule(WORKFLOW_ID, schedule)
+        httpx_mock.add_response(method="PUT", url=url(f"{AG}/schedule"), json=_agent())
+        client.agents.set_schedule(AGENT_ID, schedule)
         assert last_json(httpx_mock) == {
             "cron": "0 6 * * 1-5",
             "timezone": "America/New_York",
@@ -581,43 +620,43 @@ class TestSchedules:
 
     def test_set_schedule_refuses_both_forms(self, client: RagnerockClient) -> None:
         with pytest.raises(ValueError, match="not both"):
-            client.workflows.set_schedule(
-                WORKFLOW_ID, WorkflowSchedule(cron="0 6 * * *"), cron="0 7 * * *"
+            client.agents.set_schedule(
+                AGENT_ID, AgentSchedule(cron="0 6 * * *"), cron="0 7 * * *"
             )
 
     def test_set_schedule_requires_a_cron(self, client: RagnerockClient) -> None:
         with pytest.raises(ValueError, match="requires"):
-            client.workflows.set_schedule(WORKFLOW_ID)
+            client.agents.set_schedule(AGENT_ID)
 
     def test_set_schedule_refuses_a_bare_crontab(self, client: RagnerockClient) -> None:
         with pytest.raises(TypeError, match="cron="):
-            client.workflows.set_schedule(WORKFLOW_ID, "0 6 * * *")  # type: ignore[arg-type]
+            client.agents.set_schedule(AGENT_ID, "0 6 * * *")  # type: ignore[arg-type]
 
     def test_clear_schedule(self, httpx_mock: Any, client: RagnerockClient) -> None:
         httpx_mock.add_response(
-            method="DELETE", url=url(f"{WF}/schedule"), json=_workflow(schedule=None)
+            method="DELETE", url=url(f"{AG}/schedule"), json=_agent(schedule=None)
         )
-        wf = client.workflows.clear_schedule(WORKFLOW_ID)
-        assert wf.schedule is None
+        agent = client.agents.clear_schedule(AGENT_ID)
+        assert agent.schedule is None
 
     def test_resume_schedule(self, httpx_mock: Any, client: RagnerockClient) -> None:
         httpx_mock.add_response(
             method="POST",
-            url=url(f"{WF}/schedule/resume"),
-            json=_workflow(schedule_state={"paused": False}),
+            url=url(f"{AG}/schedule/resume"),
+            json=_agent(schedule_state={"paused": False}),
         )
-        wf = client.workflows.resume_schedule(WORKFLOW_ID)
+        agent = client.agents.resume_schedule(AGENT_ID)
         assert last_request(httpx_mock).content == b""
-        assert wf.schedule_state is not None
-        assert wf.schedule_state.paused is False
+        assert agent.schedule_state is not None
+        assert agent.schedule_state.paused is False
 
     def test_schedule_preview(self, httpx_mock: Any, client: RagnerockClient) -> None:
         httpx_mock.add_response(
             method="POST",
-            url=url("/api/workflows/schedule-preview"),
+            url=url("/api/agents/schedule-preview"),
             json={"fires": ["2026-10-28T06:00:00Z"], "errors": []},
         )
-        preview = client.workflows.schedule_preview(cron="0 6 * * *")
+        preview = client.agents.schedule_preview(cron="0 6 * * *")
         assert last_json(httpx_mock) == {"cron": "0 6 * * *", "timezone": "UTC"}
         assert preview.fires == ["2026-10-28T06:00:00Z"]
         assert preview.errors == []
@@ -625,29 +664,29 @@ class TestSchedules:
     def test_run_now_creates_one_run_with_no_bindings(
         self, httpx_mock: Any, client: RagnerockClient
     ) -> None:
-        job_id = "00000000-0000-0000-0000-000000000801"
-        run_id = "00000000-0000-0000-0000-000000000802"
+        run_id = "00000000-0000-0000-0000-000000000801"
+        provenance_id = "00000000-0000-0000-0000-000000000802"
         httpx_mock.add_response(
             method="POST",
-            url=url("/api/jobs/"),
-            json={"job_ids": [job_id], "run_ids": [run_id]},
+            url=url("/api/runs/"),
+            json={"run_ids": [run_id], "provenance_ids": [provenance_id]},
         )
-        result = client.workflows.run_now(WORKFLOW_ID, capture_execution_log=True)
+        result = client.agents.run_now(AGENT_ID, capture_execution_log=True)
         body = last_json(httpx_mock)
         assert body == {
-            "workflow_id": str(WORKFLOW_ID),
+            "agent_id": str(AGENT_ID),
             "runs": [{"inputs": {}}],
             "capture_execution_log": True,
         }
         # Explicit mode only: the per-document fan-out fields stay unset.
-        assert "document_ids" not in body and "workflow_ids" not in body
-        assert result.job_ids == [UUID(job_id)]
+        assert "document_ids" not in body and "agent_ids" not in body
+        assert result.run_ids == [UUID(run_id)]
         assert "X-Ragnerock-Driver-Token" not in last_request(httpx_mock).headers
 
 
-class TestResourceBuilders:
-    def test_tool_call_resource_declares_a_file_by_default(self) -> None:
-        spec = tool_call_resource(
+class TestInputBuilders:
+    def test_tool_call_input_declares_a_file_by_default(self) -> None:
+        spec = tool_call_input(
             "activity", tool="pendo", function="get_events", file_type=FileType.CSV
         )
         assert spec == {
@@ -665,16 +704,16 @@ class TestResourceBuilders:
             },
         }
 
-    def test_tool_call_resource_reduces_a_qualified_function(self) -> None:
-        spec = tool_call_resource("a", tool="crm", function="crm__get_customer")
+    def test_tool_call_input_reduces_a_qualified_function(self) -> None:
+        spec = tool_call_input("a", tool="crm", function="crm__get_customer")
         assert spec["source"]["function"] == "get_customer"
 
-    def test_tool_call_resource_keeps_another_tool_s_prefix(self) -> None:
-        spec = tool_call_resource("a", tool="crm", function="erp__get_order")
+    def test_tool_call_input_keeps_another_tool_s_prefix(self) -> None:
+        spec = tool_call_input("a", tool="crm", function="erp__get_order")
         assert spec["source"]["function"] == "erp__get_order"
 
-    def test_as_value_declares_a_value_resource(self) -> None:
-        spec = web_fetch_resource(
+    def test_as_value_declares_a_value_input(self) -> None:
+        spec = web_fetch_input(
             "page", "https://example.com/page", as_value=True, description="Page"
         )
         assert spec["type"] == "value"
@@ -683,7 +722,7 @@ class TestResourceBuilders:
         assert "file_type" not in spec["source"]
 
     def test_string_file_types_are_lowercased(self) -> None:
-        spec = web_fetch_resource(
+        spec = web_fetch_input(
             "page", "https://example.com/a.md", file_type="Markdown", embed=True
         )
         assert spec["source"]["file_type"] == "markdown"
@@ -696,26 +735,26 @@ class TestChangeRequests:
     ) -> None:
         httpx_mock.add_response(
             method="GET",
-            url=url(f"{WF}/change-requests?skip=0&limit=50&status=pending"),
+            url=url(f"{AG}/change-requests?skip=0&limit=50&status=pending"),
             json={"items": [_change_request()], "total": 1, "skip": 0, "limit": 50},
         )
-        page = client.workflows.change_requests.list(
-            WORKFLOW_ID, status=ChangeRequestStatus.PENDING
+        page = client.agents.change_requests.list(
+            AGENT_ID, status=ChangeRequestStatus.PENDING
         )
         assert page.total == 1
         assert page.items[0].status == ChangeRequestStatus.PENDING
         assert page.items[0].resolved_at is None
-        assert page.items[0].trigger_operator_name == "new_form_type"
+        assert page.items[0].trigger_task_name == "new_form_type"
 
     def test_list_without_status(
         self, httpx_mock: Any, client: RagnerockClient
     ) -> None:
         httpx_mock.add_response(
             method="GET",
-            url=url(f"{WF}/change-requests?skip=50&limit=25"),
+            url=url(f"{AG}/change-requests?skip=50&limit=25"),
             json={"items": [], "total": 0, "skip": 50, "limit": 25},
         )
-        page = client.workflows.change_requests.list(WORKFLOW_ID, skip=50, limit=25)
+        page = client.agents.change_requests.list(AGENT_ID, skip=50, limit=25)
         assert page.items == []
 
     def test_get_detail(self, httpx_mock: Any, client: RagnerockClient) -> None:
@@ -745,14 +784,14 @@ class TestChangeRequests:
                 "documents_awaiting_backfill": 0,
             },
         )
-        detail = client.workflows.change_requests.get(WORKFLOW_ID, REQUEST_ID)
+        detail = client.agents.change_requests.get(AGENT_ID, REQUEST_ID)
         assert detail.request.id == REQUEST_ID
         assert detail.signals[0].count == 3
         assert detail.documents is not None
         assert detail.documents.items[0].signal == "unknown form 8-K/A"
         assert detail.revisions[0].revision == 1
         assert detail.latest_proposal is not None
-        assert detail.latest_proposal.proposed_manifest == [{"kind": "Workflow"}]
+        assert detail.latest_proposal.proposed_manifest == [{"kind": "Agent"}]
 
     def test_documents(self, httpx_mock: Any, client: RagnerockClient) -> None:
         httpx_mock.add_response(
@@ -765,18 +804,41 @@ class TestChangeRequests:
                 "limit": 50,
             },
         )
-        page = client.workflows.change_requests.documents(
-            WORKFLOW_ID, REQUEST_ID, skip=50
-        )
+        page = client.agents.change_requests.documents(AGENT_ID, REQUEST_ID, skip=50)
         assert page.total == 51
         assert page.items[0].document_missing is True
+
+    def test_documents_parse_runs_and_provenances(
+        self, httpx_mock: Any, client: RagnerockClient
+    ) -> None:
+        httpx_mock.add_response(
+            method="GET",
+            url=url(f"{CR}/documents?skip=0&limit=50"),
+            json={
+                "items": [
+                    _document(
+                        backfill_run_id=str(BACKFILL_RUN_ID),
+                        backfill_provenance_id=str(BACKFILL_PROVENANCE_ID),
+                    )
+                ],
+                "total": 1,
+                "skip": 0,
+                "limit": 50,
+            },
+        )
+        record = client.agents.change_requests.documents(AGENT_ID, REQUEST_ID).items[0]
+        # ``run_id`` is the run; ``provenance_id`` is what that run pinned.
+        assert record.run_id == RUN_ID
+        assert record.provenance_id == PROVENANCE_ID
+        assert record.backfill_run_id == BACKFILL_RUN_ID
+        assert record.backfill_provenance_id == BACKFILL_PROVENANCE_ID
 
     def test_get_proposal(self, httpx_mock: Any, client: RagnerockClient) -> None:
         httpx_mock.add_response(
             method="GET", url=url(f"{CR}/proposals/{PROPOSAL_ID}"), json=_proposal()
         )
-        proposal = client.workflows.change_requests.get_proposal(
-            WORKFLOW_ID, REQUEST_ID, PROPOSAL_ID
+        proposal = client.agents.change_requests.get_proposal(
+            AGENT_ID, REQUEST_ID, PROPOSAL_ID
         )
         assert proposal.status == "ready"
         assert proposal.diff["warnings"] == []
@@ -788,19 +850,19 @@ class TestChangeRequests:
             method="POST",
             url=url(f"{CR}/approve"),
             json={
-                "workflow_id": str(WORKFLOW_ID),
-                "operators_created": 1,
-                "operators_updated": 1,
+                "agent_id": str(AGENT_ID),
+                "tasks_created": 1,
+                "tasks_updated": 1,
                 "snapshot_id": "00000000-0000-0000-0000-000000000904",
                 "documents_awaiting_backfill": 3,
             },
         )
-        result = client.workflows.change_requests.approve(
-            WORKFLOW_ID, REQUEST_ID, proposal_id=PROPOSAL_ID
+        result = client.agents.change_requests.approve(
+            AGENT_ID, REQUEST_ID, proposal_id=PROPOSAL_ID
         )
         assert last_json(httpx_mock) == {"proposal_id": str(PROPOSAL_ID)}
         assert result.documents_awaiting_backfill == 3
-        assert result.orphaned_operators == []
+        assert result.orphaned_tasks == []
 
     def test_approve_with_a_token_surfaces_the_403(
         self, httpx_mock: Any, client: RagnerockClient
@@ -812,8 +874,8 @@ class TestChangeRequests:
             json={"detail": "Change requests must be approved by a signed-in user"},
         )
         with pytest.raises(AuthenticationError):
-            client.workflows.change_requests.approve(
-                WORKFLOW_ID, REQUEST_ID, proposal_id=PROPOSAL_ID
+            client.agents.change_requests.approve(
+                AGENT_ID, REQUEST_ID, proposal_id=PROPOSAL_ID
             )
 
     def test_approve_a_stale_revision_surfaces_the_409(
@@ -823,11 +885,11 @@ class TestChangeRequests:
             method="POST",
             url=url(f"{CR}/approve"),
             status_code=409,
-            json={"detail": "The workflow changed since this revision"},
+            json={"detail": "The agent changed since this revision"},
         )
         with pytest.raises(RagnerockError) as exc_info:
-            client.workflows.change_requests.approve(
-                WORKFLOW_ID, REQUEST_ID, proposal_id=PROPOSAL_ID
+            client.agents.change_requests.approve(
+                AGENT_ID, REQUEST_ID, proposal_id=PROPOSAL_ID
             )
         assert exc_info.value.status_code == 409
 
@@ -839,9 +901,7 @@ class TestChangeRequests:
             url=url(f"{CR}/reject"),
             json=_change_request(status="rejected", rejection_note="no"),
         )
-        result = client.workflows.change_requests.reject(
-            WORKFLOW_ID, REQUEST_ID, note="no"
-        )
+        result = client.agents.change_requests.reject(AGENT_ID, REQUEST_ID, note="no")
         assert last_json(httpx_mock) == {"note": "no"}
         assert result.status == ChangeRequestStatus.REJECTED
         assert result.rejection_note == "no"
@@ -854,16 +914,148 @@ class TestChangeRequests:
             url=url(f"{CR}/reject"),
             json=_change_request(status="rejected"),
         )
-        client.workflows.change_requests.reject(WORKFLOW_ID, REQUEST_ID)
+        client.agents.change_requests.reject(AGENT_ID, REQUEST_ID)
         assert last_json(httpx_mock) == {}
 
     def test_backfill(self, httpx_mock: Any, client: RagnerockClient) -> None:
         httpx_mock.add_response(
             method="POST",
             url=url(f"{CR}/backfill"),
-            json={"job_ids": [], "run_ids": [], "skipped_missing": 1, "remaining": 0},
+            json={
+                "run_ids": [str(BACKFILL_RUN_ID)],
+                "provenance_ids": [str(BACKFILL_PROVENANCE_ID)],
+                "skipped_missing": 1,
+                "remaining": 0,
+            },
         )
-        result = client.workflows.change_requests.backfill(WORKFLOW_ID, REQUEST_ID)
+        result = client.agents.change_requests.backfill(AGENT_ID, REQUEST_ID)
         assert last_request(httpx_mock).content == b""
+        assert result.run_ids == [BACKFILL_RUN_ID]
+        assert result.provenance_ids == [BACKFILL_PROVENANCE_ID]
         assert result.skipped_missing == 1
         assert result.remaining == 0
+
+
+class TestDraftChanges:
+    def test_draft_changes(self, httpx_mock: Any, client: RagnerockClient) -> None:
+        httpx_mock.add_response(
+            method="GET",
+            url=url(DRAFT),
+            json={
+                "draft_id": str(DRAFT_ID),
+                "original_id": str(AGENT_ID),
+                "original_name": "ingest",
+                "original_changed": False,
+                "diff": {"objects": [], "nodes": [], "edges": [], "warnings": []},
+                "shared_changes": [
+                    {
+                        "kind": "Task",
+                        "name": "scout",
+                        "agents": ["triage"],
+                        "private_drafts": 1,
+                    }
+                ],
+                "endpoints": ["scout-api"],
+                "problems": [],
+            },
+        )
+        changes = client.agents.draft_changes(DRAFT_ID)
+        assert last_request(httpx_mock).method == "GET"
+        assert changes.draft_id == DRAFT_ID
+        assert changes.original_id == AGENT_ID
+        assert changes.original_changed is False
+        assert changes.diff is not None and changes.diff["warnings"] == []
+        assert changes.shared_changes[0].kind == "Task"
+        assert changes.shared_changes[0].agents == ["triage"]
+        assert changes.shared_changes[0].private_drafts == 1
+        assert changes.endpoints == ["scout-api"]
+        assert changes.problems == []
+
+    def test_draft_changes_without_a_diff(
+        self, httpx_mock: Any, client: RagnerockClient
+    ) -> None:
+        httpx_mock.add_response(
+            method="GET",
+            url=url(DRAFT),
+            json={
+                "draft_id": str(DRAFT_ID),
+                "original_id": str(AGENT_ID),
+                "original_name": "ingest",
+                "original_changed": True,
+                "diff": None,
+                "problems": ["The agent changed since this draft was made."],
+            },
+        )
+        changes = client.agents.draft_changes(DRAFT_ID)
+        assert changes.original_changed is True
+        assert changes.diff is None
+        assert changes.shared_changes == []
+        assert changes.problems == ["The agent changed since this draft was made."]
+
+    @pytest.mark.parametrize(
+        "shared_tasks",
+        [DraftSharedTasks.ONLY_THIS_AGENT, "only_this_agent"],
+        ids=["enum", "str"],
+    )
+    def test_keep_sends_where_shared_changes_go(
+        self,
+        httpx_mock: Any,
+        client: RagnerockClient,
+        shared_tasks: DraftSharedTasks | str,
+    ) -> None:
+        httpx_mock.add_response(
+            method="POST",
+            url=url(f"{DRAFT}/keep"),
+            json={
+                "agent_id": str(AGENT_ID),
+                "agent_name": "ingest",
+                "warnings": ["Code in 'summary' reads the renamed task 'scout'."],
+            },
+        )
+        result = client.agents.keep_draft_changes(DRAFT_ID, shared_tasks=shared_tasks)
+        assert last_json(httpx_mock) == {"shared_tasks": "only_this_agent"}
+        assert result.agent_id == AGENT_ID
+        assert result.agent_name == "ingest"
+        assert result.warnings == ["Code in 'summary' reads the renamed task 'scout'."]
+
+    def test_keep_without_shared_tasks_sends_an_empty_body(
+        self, httpx_mock: Any, client: RagnerockClient
+    ) -> None:
+        httpx_mock.add_response(
+            method="POST",
+            url=url(f"{DRAFT}/keep"),
+            json={"agent_id": str(AGENT_ID), "agent_name": "ingest"},
+        )
+        result = client.agents.keep_draft_changes(DRAFT_ID)
+        assert last_json(httpx_mock) == {}
+        assert result.warnings == []
+
+    def test_keep_refused_surfaces_the_error(
+        self, httpx_mock: Any, client: RagnerockClient
+    ) -> None:
+        httpx_mock.add_response(
+            method="POST",
+            url=url(f"{DRAFT}/keep"),
+            status_code=409,
+            json={"detail": "The agent changed since this draft was made"},
+        )
+        with pytest.raises(RagnerockError) as exc_info:
+            client.agents.keep_draft_changes(
+                DRAFT_ID, shared_tasks=DraftSharedTasks.EVERY_AGENT
+            )
+        assert exc_info.value.status_code == 409
+        assert last_json(httpx_mock) == {"shared_tasks": "every_agent"}
+
+    def test_refresh_returns_the_draft(
+        self, httpx_mock: Any, client: RagnerockClient
+    ) -> None:
+        httpx_mock.add_response(
+            method="POST",
+            url=url(f"{DRAFT}/refresh"),
+            json=_agent(id=str(DRAFT_ID), is_draft=True, shadow_of_id=str(AGENT_ID)),
+        )
+        draft = client.agents.refresh_draft_changes(DRAFT_ID)
+        assert last_request(httpx_mock).content == b""
+        assert draft.id == DRAFT_ID
+        assert draft.is_draft is True
+        assert draft.shadow_of_id == AGENT_ID

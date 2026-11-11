@@ -21,8 +21,10 @@ class WebAccessPolicyResponse(_ApiModel):
 
     Attributes:
         account_id (UUID | None): The workspace's account.
-        web_fetch_enabled (bool): Whether agents may retrieve web pages.
-        web_search_enabled (bool): Whether agents may search the web.
+        web_fetch_enabled (bool): Whether tasks and notebooks may retrieve
+            web pages.
+        web_search_enabled (bool): Whether tasks and notebooks may search
+            the web.
         web_search_daily_cap (int | None): Saved cap on billed searches per
             rolling day; ``None`` uses the deployment default.
         effective_web_search_daily_cap (int | None): The cap actually in
@@ -96,9 +98,9 @@ class WebSearchProviderTestResponse(_ApiModel):
 class _WebAccessSection(_Section):
     """The workspace's web-fetch/search policy and search provider.
 
-    The policy is an account-administrator switch for whether agents may reach
-    the open web at all. A project editor still has to turn the tool on for a
-    project before agents there can use it.
+    The policy is an account-administrator switch for whether tasks and
+    notebooks may reach the open web at all. A project editor still has to turn
+    the tool on for a project before tasks there can use it.
     """
 
     def get_policy(self) -> WebAccessPolicyResponse:
@@ -127,8 +129,10 @@ class _WebAccessSection(_Section):
         "leave unchanged".
 
         Args:
-            web_fetch_enabled (bool): Whether agents may retrieve web pages.
-            web_search_enabled (bool): Whether agents may search the web.
+            web_fetch_enabled (bool): Whether tasks and notebooks may retrieve
+                web pages.
+            web_search_enabled (bool): Whether tasks and notebooks may search
+                the web.
             web_search_daily_cap (int | None): Billed searches per rolling day
                 (at least 1), or ``None`` for the deployment default.
 
@@ -188,7 +192,7 @@ class _WebAccessSection(_Section):
 
         Calls ``DELETE /api/web-access/search-provider``. The policy is left
         alone; web search simply stops working in every project that has it
-        on, and agents there carry on without it.
+        on, and tasks there carry on without it.
         """
         self._parent._request("DELETE", "/api/web-access/search-provider")
 

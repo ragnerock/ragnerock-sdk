@@ -27,7 +27,7 @@ def _skill(**overrides: Any) -> dict[str, Any]:
         "description": "Use when reading W-2 or 1099 forms.",
         "body": "# Tax forms\n\nRead box 1 first.",
         "is_available": True,
-        "operator_count": 2,
+        "task_count": 2,
         "created_at": "2026-09-04T00:00:00Z",
         "updated_at": "2026-09-04T00:00:00Z",
     }
@@ -52,7 +52,7 @@ def test_list_sends_project_and_paging(httpx_mock, client: RagnerockClient) -> N
     assert isinstance(result, SkillList)
     assert result.total == 11
     assert result.skills[0].name == "Tax forms"
-    assert result.skills[0].operator_count == 2
+    assert result.skills[0].task_count == 2
 
 
 def test_get_parses_the_skill(httpx_mock, client: RagnerockClient) -> None:
@@ -112,20 +112,20 @@ def test_update_sends_a_false_switch(httpx_mock, client: RagnerockClient) -> Non
     assert last_json(httpx_mock) == {"is_available": False}
 
 
-def test_delete_reports_unlinked_agents_and_released_tools(
+def test_delete_reports_unlinked_tasks_and_released_tools(
     httpx_mock, client: RagnerockClient
 ) -> None:
     httpx_mock.add_response(
         method="DELETE",
         url=url(f"/api/skills/{SKILL_ID}"),
-        json={"id": SKILL_ID, "operator_count": 3, "released_tool_count": 1},
+        json={"id": SKILL_ID, "task_count": 3, "released_tool_count": 1},
     )
 
     result = client.skills.delete(UUID(SKILL_ID))
 
     assert last_request(httpx_mock).method == "DELETE"
     assert isinstance(result, SkillDeleteResponse)
-    assert result.operator_count == 3
+    assert result.task_count == 3
     assert result.released_tool_count == 1
 
 

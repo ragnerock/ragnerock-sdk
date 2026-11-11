@@ -1,4 +1,4 @@
-"""``ragnerock run`` — execute a workflow against a batch of documents."""
+"""``ragnerock run`` — run an agent against a batch of documents."""
 
 from __future__ import annotations
 
@@ -7,13 +7,11 @@ from typing import Annotated
 import typer
 
 from ragnerock.cli.session import open_session
-from ragnerock.resources import Document, JobStatus, Workflow
+from ragnerock.resources import Agent, Document, RunStatus
 
 
 def run_cmd(
-    workflow_name: Annotated[
-        str, typer.Argument(help="Name of the workflow to execute.")
-    ],
+    agent_name: Annotated[str, typer.Argument(help="Name of the agent to run.")],
     documents: Annotated[
         str,
         typer.Option(
@@ -25,7 +23,7 @@ def run_cmd(
         bool,
         typer.Option(
             "--wait/--no-wait",
-            help="Block until the job reaches a terminal state.",
+            help="Block until the run reaches a terminal state.",
         ),
     ] = False,
     poll_interval: Annotated[
@@ -43,21 +41,21 @@ def run_cmd(
         ),
     ] = None,
 ) -> None:
-    """Kick off a workflow and optionally block until it completes.
+    """Start an agent run and optionally block until it completes.
 
     Exit codes:
-    * ``0`` — job succeeded (or wasn't waited on).
-    * ``1`` — workflow or document not found.
-    * ``2`` — job failed or timed out.
+    * ``0`` — run succeeded (or wasn't waited on).
+    * ``1`` — agent or document not found.
+    * ``2`` — run failed or timed out.
     """
     names = [n.strip() for n in documents.split(",") if n.strip()]
     if not names:
         raise typer.BadParameter("--documents must list at least one document name.")
 
     with open_session() as session:
-        workflow = session.get(Workflow, name=workflow_name)
-        if workflow is None:
-            typer.echo(f"workflow/{workflow_name} not found", err=True)
+        agent = session.get(Agent, name=agent_name)
+        if agent is None:
+            typer.echo(f"agent/{agent_name} not found", err=True)
             raise typer.Exit(code=1)
 
         resolved: list[Document] = []
@@ -75,19 +73,19 @@ def run_cmd(
             )
             raise typer.Exit(code=1)
 
-        job = session.run(workflow, documents=resolved)
-        typer.echo(f"job/{job.id} started")
+        run = session.run(agent, documents=resolved)
+        typer.echo(f"run/{run.id} started")
 
         if not wait:
             return
 
         try:
-            job.wait(timeout=timeout, poll_interval=poll_interval)
+            run.wait(timeout=timeout, poll_interval=poll_interval)
         except TimeoutError as e:
             typer.echo(str(e), err=True)
             raise typer.Exit(code=2) from e
 
-        status_name = getattr(job.status, "name", str(job.status))
-        typer.echo(f"job/{job.id} finished with status {status_name}")
-        if job.status is not JobStatus.SUCCEEDED:
+        status_name = getattr(run.status, "name", str(run.status))
+        typer.echo(f"run/{run.id} finished with status {status_name}")
+        if run.status is not RunStatus.SUCCEEDED:
             raise typer.Exit(code=2)

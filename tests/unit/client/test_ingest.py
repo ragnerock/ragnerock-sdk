@@ -65,7 +65,7 @@ def _config(source: dict[str, Any], **overrides: Any) -> dict[str, Any]:
         "name": "filings",
         "cron": None,
         "source": source,
-        "document_group_id": None,
+        "document_folder_id": None,
         "created_at": NOW,
         "updated_at": NOW,
     }
@@ -520,8 +520,17 @@ class TestConfigs:
             status_code=409,
             json={
                 "detail": {
-                    "message": "Workflows still use this config.",
-                    "workflows": [],
+                    "message": "Agents still use this config.",
+                    "agents": [
+                        {
+                            "agent_id": str(uuid.uuid4()),
+                            "agent_name": "filing_review",
+                            "input_id": str(uuid.uuid4()),
+                            "input_name": "filings",
+                            "process_mode": "CHANGES",
+                            "trigger": True,
+                        }
+                    ],
                 }
             },
         )
@@ -530,6 +539,7 @@ class TestConfigs:
             client.ingest_sources.delete_config(uuid.UUID(PROJECT_ID), config_id)
 
         assert exc_info.value.status_code == 409
+        assert exc_info.value.message == "Agents still use this config."
 
 
 class TestPreviewSql:
@@ -612,56 +622,56 @@ class TestPreviewSql:
             )
 
 
-class TestWorkflowBindings:
-    def test_list_config_workflows(
+class TestAgentBindings:
+    def test_list_config_agents(
         self, client: RagnerockClient, httpx_mock: HTTPXMock
     ) -> None:
         config_id = uuid.uuid4()
         ref = {
-            "workflow_id": str(uuid.uuid4()),
-            "workflow_name": "filing_review",
-            "resource_id": str(uuid.uuid4()),
-            "resource_name": "filings",
+            "agent_id": str(uuid.uuid4()),
+            "agent_name": "filing_review",
+            "input_id": str(uuid.uuid4()),
+            "input_name": "filings",
             "process_mode": "FULL",
             "trigger": False,
         }
         httpx_mock.add_response(
             method="GET",
-            url=url(f"/ingest/workflows/{PROJECT_ID}/{config_id}"),
+            url=url(f"/ingest/agents/{PROJECT_ID}/{config_id}"),
             json=[ref],
         )
 
-        refs = client.ingest_sources.list_config_workflows(
+        refs = client.ingest_sources.list_config_agents(
             uuid.UUID(PROJECT_ID), config_id
         )
 
         assert last_request(httpx_mock).headers["Authorization"] == "Bearer rgnk_test"
-        assert [r.workflow_name for r in refs] == ["filing_review"]
+        assert [r.agent_name for r in refs] == ["filing_review"]
+        assert refs[0].input_id == uuid.UUID(ref["input_id"])
+        assert refs[0].input_name == "filings"
         assert refs[0].trigger is False
         assert refs[0].process_mode == "FULL"
 
-    def test_list_workflow_link_notices(
+    def test_list_agent_link_notices(
         self, client: RagnerockClient, httpx_mock: HTTPXMock
     ) -> None:
         notice = {
             "id": str(uuid.uuid4()),
             "config_id": str(uuid.uuid4()),
             "config_name": "filings",
-            "workflow_id": str(uuid.uuid4()),
-            "workflow_name": "filing_review",
+            "agent_id": str(uuid.uuid4()),
+            "agent_name": "filing_review",
         }
         httpx_mock.add_response(
             method="GET",
-            url=url(f"/ingest/workflow-link-notices/{PROJECT_ID}"),
+            url=url(f"/ingest/agent-link-notices/{PROJECT_ID}"),
             json=[notice],
         )
 
-        notices = client.ingest_sources.list_workflow_link_notices(
-            uuid.UUID(PROJECT_ID)
-        )
+        notices = client.ingest_sources.list_agent_link_notices(uuid.UUID(PROJECT_ID))
 
         assert [str(n.id) for n in notices] == [notice["id"]]
-        assert notices[0].workflow_name == "filing_review"
+        assert notices[0].agent_name == "filing_review"
 
     @pytest.mark.parametrize("action", ["link", "dismiss"])
     def test_resolving_a_notice_accepts_an_empty_204(
@@ -670,13 +680,13 @@ class TestWorkflowBindings:
         notice_id = uuid.uuid4()
         httpx_mock.add_response(
             method="POST",
-            url=url(f"/ingest/workflow-link-notices/{PROJECT_ID}/{notice_id}/{action}"),
+            url=url(f"/ingest/agent-link-notices/{PROJECT_ID}/{notice_id}/{action}"),
             status_code=204,
         )
         method = (
-            client.ingest_sources.link_workflow_notice
+            client.ingest_sources.link_agent_notice
             if action == "link"
-            else client.ingest_sources.dismiss_workflow_notice
+            else client.ingest_sources.dismiss_agent_notice
         )
 
         assert method(uuid.UUID(PROJECT_ID), notice_id) is None
@@ -688,10 +698,10 @@ class TestWorkflowBindings:
         notice_id = uuid.uuid4()
         httpx_mock.add_response(
             method="POST",
-            url=url(f"/ingest/workflow-link-notices/{PROJECT_ID}/{notice_id}/link"),
+            url=url(f"/ingest/agent-link-notices/{PROJECT_ID}/{notice_id}/link"),
             status_code=404,
             json={"detail": "already resolved"},
         )
 
         with pytest.raises(NotFoundError, match="already resolved"):
-            client.ingest_sources.link_workflow_notice(uuid.UUID(PROJECT_ID), notice_id)
+            client.ingest_sources.link_agent_notice(uuid.UUID(PROJECT_ID), notice_id)

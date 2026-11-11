@@ -20,17 +20,17 @@ from ragnerock.errors import (
 from ragnerock.iterator import PageResult, PaginatedIterator
 from ragnerock.query_result import QueryResult
 from ragnerock.resources import (
+    Agent,
+    AgentNode,
     Annotation,
     Chunk,
     Document,
-    DocumentGroup,
-    Job,
-    JobStatus,
-    Operator,
-    OperatorKind,
+    DocumentFolder,
     Page,
-    Workflow,
-    WorkflowNode,
+    Run,
+    RunStatus,
+    Task,
+    TaskKind,
 )
 from ragnerock.resources.base import _Resource
 
@@ -254,33 +254,34 @@ class Session:
         *,
         id: UUID | str | None = None,
         name: str | None = None,
-        workflow_id: UUID | str | None = None,
-        workflow_name: str | None = None,
+        agent_id: UUID | str | None = None,
+        agent_name: str | None = None,
     ) -> T | None:
         """Fetch a single resource by id or name.
 
         Exactly one of ``id`` or ``name`` must be supplied. Not every resource
         type supports name lookup: :class:`Chunk`, :class:`Page`,
-        :class:`Annotation`, and :class:`Job` are id-only.
-        :class:`DocumentGroup`, :class:`Operator`, and :class:`Workflow`
-        support name lookup by listing and matching client-side. :class:`WorkflowNode` requires the
-        parent workflow via either ``workflow_id=`` or ``workflow_name=``;
-        the server has no standalone node endpoint, so this fetches the
-        parent workflow and returns the matching node. Node ``name=`` lookup
-        matches against ``operator_name`` and returns the first match.
+        :class:`Annotation`, and :class:`Run` are id-only.
+        :class:`DocumentFolder`, :class:`Task`, and :class:`Agent`
+        support name lookup by listing and matching client-side.
+        :class:`AgentNode` requires the parent agent via either
+        ``agent_id=`` or ``agent_name=``; the server has no standalone node
+        endpoint, so this fetches the parent agent and returns the matching
+        node. Node ``name=`` lookup matches against ``task_name`` and
+        returns the first match.
 
         Args:
             resource_type (type[T]): The resource class to fetch.
             id (UUID | str | None): Server-assigned UUID (or its string
                 form) to look up.
             name (str | None): Human-readable name to look up (where
-                supported). For :class:`WorkflowNode`, matches
-                ``operator_name``.
-            workflow_id (UUID | str | None): Parent workflow id. Required
-                when ``resource_type`` is :class:`WorkflowNode` unless
-                ``workflow_name=`` is given.
-            workflow_name (str | None): Parent workflow name, as an
-                alternative to ``workflow_id=`` for :class:`WorkflowNode`
+                supported). For :class:`AgentNode`, matches
+                ``task_name``.
+            agent_id (UUID | str | None): Parent agent id. Required
+                when ``resource_type`` is :class:`AgentNode` unless
+                ``agent_name=`` is given.
+            agent_name (str | None): Parent agent name, as an
+                alternative to ``agent_id=`` for :class:`AgentNode`
                 lookups.
 
         Returns:
@@ -311,18 +312,20 @@ class Session:
                 return None
             return self._bind(_build(Document, response))  # type: ignore[return-value]
 
-        if resource_type is DocumentGroup:
+        if resource_type is DocumentFolder:
             if id is not None:
                 try:
-                    response = client.groups.get(self._engine.project_id, _as_uuid(id))
+                    response = client.document_folders.get(
+                        self._engine.project_id, _as_uuid(id)
+                    )
                 except NotFoundError:
                     return None
-                return self._bind(_build(DocumentGroup, response))  # type: ignore[return-value]
+                return self._bind(_build(DocumentFolder, response))  # type: ignore[return-value]
             return self._find_by_name_via_list(  # type: ignore[return-value]
-                DocumentGroup,
+                DocumentFolder,
                 name,
-                _fetch_operator_by_id=lambda gid: client.groups.get(
-                    self._engine.project_id, gid
+                _fetch_by_id=lambda fid: client.document_folders.get(
+                    self._engine.project_id, fid
                 ),
             )
 
@@ -353,61 +356,59 @@ class Session:
                 return None
             return self._bind(_build(Annotation, response))  # type: ignore[return-value]
 
-        if resource_type is Job:
+        if resource_type is Run:
             if name is not None:
-                raise ValidationError("Job does not support lookup by name")
+                raise ValidationError("Run does not support lookup by name")
             try:
-                response = client.jobs.get(_as_uuid(id))  # type: ignore[arg-type]
+                response = client.runs.get(_as_uuid(id))  # type: ignore[arg-type]
             except NotFoundError:
                 return None
-            return self._bind(_build(Job, response))  # type: ignore[return-value]
+            return self._bind(_build(Run, response))  # type: ignore[return-value]
 
-        if resource_type is Operator:
+        if resource_type is Task:
             if id is not None:
                 try:
-                    response = client.operators.get(_as_uuid(id))
+                    response = client.tasks.get(_as_uuid(id))
                 except NotFoundError:
                     return None
-                return self._bind(_build(Operator, response))  # type: ignore[return-value]
+                return self._bind(_build(Task, response))  # type: ignore[return-value]
             return self._find_by_name_via_list(  # type: ignore[return-value]
-                Operator, name, _fetch_operator_by_id=client.operators.get
+                Task, name, _fetch_by_id=client.tasks.get
             )
 
-        if resource_type is Workflow:
+        if resource_type is Agent:
             if id is not None:
                 try:
-                    response = client.workflows.get(_as_uuid(id))
+                    response = client.agents.get(_as_uuid(id))
                 except NotFoundError:
                     return None
-                return self._bind(_build(Workflow, response))  # type: ignore[return-value]
+                return self._bind(_build(Agent, response))  # type: ignore[return-value]
             return self._find_by_name_via_list(  # type: ignore[return-value]
-                Workflow, name, _fetch_operator_by_id=client.workflows.get
+                Agent, name, _fetch_by_id=client.agents.get
             )
 
-        if resource_type is WorkflowNode:
-            if workflow_id is None and workflow_name is None:
-                raise ValidationError(
-                    "WorkflowNode get requires workflow_id= or workflow_name="
-                )
-            if workflow_id is not None:
+        if resource_type is AgentNode:
+            if agent_id is None and agent_name is None:
+                raise ValidationError("AgentNode get requires agent_id= or agent_name=")
+            if agent_id is not None:
                 try:
-                    wf_response = client.workflows.get(_as_uuid(workflow_id))
+                    agent_response = client.agents.get(_as_uuid(agent_id))
                 except NotFoundError:
                     return None
-                workflow = _build(Workflow, wf_response)
+                agent = _build(Agent, agent_response)
             else:
-                parent = self.get(Workflow, name=workflow_name)
+                parent = self.get(Agent, name=agent_name)
                 if parent is None:
                     return None
-                workflow = parent
+                agent = parent
             if id is not None:
                 target_id = _as_uuid(id)
-                for node in workflow.nodes:
+                for node in agent.nodes:
                     if node.id == target_id:
                         return self._bind(node)  # type: ignore[return-value]
                 return None
-            for node in workflow.nodes:
-                if node.operator_name == name:
+            for node in agent.nodes:
+                if node.task_name == name:
                     return self._bind(node)  # type: ignore[return-value]
             return None
 
@@ -418,7 +419,7 @@ class Session:
         resource_type: type[T],
         name: str | None,
         *,
-        _fetch_operator_by_id: Any,
+        _fetch_by_id: Any,
     ) -> T | None:
         """Look up a resource by name by scanning the list endpoint.
 
@@ -429,7 +430,7 @@ class Session:
         Args:
             resource_type (type[T]): The resource class to search.
             name (str | None): Name to match exactly.
-            _fetch_operator_by_id (Any): Callable taking a UUID and returning
+            _fetch_by_id (Any): Callable taking a UUID and returning
                 the hydrated response. Passed in so this helper doesn't need
                 to re-dispatch on resource type.
 
@@ -447,7 +448,7 @@ class Session:
                 item_id = getattr(item, "id", None)
                 if item_id is not None:
                     try:
-                        response = _fetch_operator_by_id(item_id)
+                        response = _fetch_by_id(item_id)
                     except NotFoundError:
                         return None
                     return self._bind(_build(resource_type, response))
@@ -462,15 +463,16 @@ class Session:
 
         - ``Chunk`` / ``Page``: must pass ``document_id=``.
         - ``Annotation``: must pass one of ``document_id=``, ``chunk_id=``,
-          or ``operator_id=``. ``operator_id=`` additionally accepts
-          ``hydrated=True`` to fetch annotations with operator metadata
+          or ``task_id=``. ``task_id=`` additionally accepts
+          ``hydrated=True`` to fetch annotations with task metadata
           joined server-side, and pairing ``document_id=`` with either
-          ``operator_id=`` or ``operator_name=`` narrows the scope further
-          (only ``operator_name=`` returns each annotation's ``root_id``).
-        - ``Job``: accepts an optional ``status=`` of a single
-          :class:`JobStatus` (or an iterable of them).
-        - ``Document``, ``DocumentGroup``, ``Operator``, ``Workflow``: no
-          filters; list is scoped to this session's project.
+          ``task_id=`` or ``task_name=`` narrows the scope further
+          (only ``task_name=`` returns each annotation's ``root_id``).
+        - ``Run``: accepts an optional ``status=`` of a single
+          :class:`RunStatus` (or an iterable of them).
+        - ``Document`` accepts an optional ``name=``; ``DocumentFolder``,
+          ``Task``, and ``Agent`` take no filters. Each list is scoped to
+          this session's project.
 
         Args:
             resource_type (type[T]): The resource class to list.
@@ -517,14 +519,21 @@ class Session:
 
             return PaginatedIterator(fetch_documents)  # type: ignore[return-value]
 
-        if resource_type is DocumentGroup:
+        if resource_type is DocumentFolder:
 
-            def fetch_groups(skip: int, limit: int) -> PageResult[DocumentGroup]:
-                response = client.groups.list(project_id, skip=skip, limit=limit)
-                items = [self._bind(_build(DocumentGroup, r)) for r in response.groups]
+            def fetch_document_folders(
+                skip: int, limit: int
+            ) -> PageResult[DocumentFolder]:
+                response = client.document_folders.list(
+                    project_id, skip=skip, limit=limit
+                )
+                items = [
+                    self._bind(_build(DocumentFolder, r))
+                    for r in response.document_folders
+                ]
                 return PageResult(items, response.total)
 
-            return PaginatedIterator(fetch_groups)  # type: ignore[return-value]
+            return PaginatedIterator(fetch_document_folders)  # type: ignore[return-value]
 
         if resource_type is Chunk:
             document_id = filters.get("document_id")
@@ -557,29 +566,29 @@ class Session:
         if resource_type is Annotation:
             return self._list_annotations(**filters)  # type: ignore[return-value]
 
-        if resource_type is Operator:
+        if resource_type is Task:
 
-            def fetch_operators(skip: int, limit: int) -> PageResult[Operator]:
-                response = client.operators.list(
+            def fetch_tasks(skip: int, limit: int) -> PageResult[Task]:
+                response = client.tasks.list(
                     project_ids=str(project_id), skip=skip, limit=limit
                 )
-                items = [self._bind(_build(Operator, r)) for r in response.operators]
+                items = [self._bind(_build(Task, r)) for r in response.tasks]
                 return PageResult(items, response.total)
 
-            return PaginatedIterator(fetch_operators)  # type: ignore[return-value]
+            return PaginatedIterator(fetch_tasks)  # type: ignore[return-value]
 
-        if resource_type is Workflow:
+        if resource_type is Agent:
 
-            def fetch_workflows(skip: int, limit: int) -> PageResult[Workflow]:
-                response = client.workflows.list(
+            def fetch_agents(skip: int, limit: int) -> PageResult[Agent]:
+                response = client.agents.list(
                     project_ids=str(project_id), skip=skip, limit=limit
                 )
-                items = [self._bind(_build(Workflow, r)) for r in response.workflows]
+                items = [self._bind(_build(Agent, r)) for r in response.agents]
                 return PageResult(items, response.total)
 
-            return PaginatedIterator(fetch_workflows)  # type: ignore[return-value]
+            return PaginatedIterator(fetch_agents)  # type: ignore[return-value]
 
-        if resource_type is Job:
+        if resource_type is Run:
             status = filters.get("status")
             status_filter: str | None = None
             if status is not None:
@@ -588,17 +597,17 @@ class Session:
                 else:
                     status_filter = str(int(status))
 
-            def fetch_jobs(skip: int, limit: int) -> PageResult[Job]:
-                response = client.jobs.list(
+            def fetch_runs(skip: int, limit: int) -> PageResult[Run]:
+                response = client.runs.list(
                     project_id=project_id,
                     status_filter=status_filter,
                     skip=skip,
                     limit=limit,
                 )
-                items = [self._bind(_build(Job, r)) for r in response.jobs]
+                items = [self._bind(_build(Run, r)) for r in response.runs]
                 return PageResult(items, response.total)
 
-            return PaginatedIterator(fetch_jobs)  # type: ignore[return-value]
+            return PaginatedIterator(fetch_runs)  # type: ignore[return-value]
 
         raise TypeError(f"list() does not support resource type {resource_type!r}")
 
@@ -611,7 +620,7 @@ class Session:
 
         Args:
             **filters (Any): Any of ``document_id``, ``chunk_id``,
-                ``operator_id``, ``operator_name``, and ``hydrated``. See
+                ``task_id``, ``task_name``, and ``hydrated``. See
                 :meth:`list` for the allowed combinations.
 
         Returns:
@@ -620,23 +629,23 @@ class Session:
 
         Raises:
             ValidationError: If none of ``document_id``, ``chunk_id``, or
-                ``operator_id`` were supplied.
+                ``task_id`` were supplied.
         """
         client = self._engine.client
         document_id = filters.get("document_id")
         chunk_id = filters.get("chunk_id")
-        operator_id = filters.get("operator_id")
-        operator_name = filters.get("operator_name")
+        task_id = filters.get("task_id")
+        task_name = filters.get("task_name")
         hydrated = filters.get("hydrated", False)
 
         if document_id is not None:
-            if operator_id is not None:
-                op_id = _as_uuid(operator_id)
+            if task_id is not None:
+                tid = _as_uuid(task_id)
                 doc_id = _as_uuid(document_id)
 
                 def fetch(skip: int, limit: int) -> PageResult[Annotation]:
-                    response = client.annotations.list_by_document_and_operator_id(
-                        doc_id, op_id, skip=skip, limit=limit
+                    response = client.annotations.list_by_document_and_task_id(
+                        doc_id, tid, skip=skip, limit=limit
                     )
                     items = [
                         self._bind(_build(Annotation, r)) for r in response.annotations
@@ -645,12 +654,12 @@ class Session:
 
                 return PaginatedIterator(fetch)
 
-            if operator_name is not None:
+            if task_name is not None:
                 doc_id = _as_uuid(document_id)
 
                 def fetch(skip: int, limit: int) -> PageResult[Annotation]:
-                    response = client.annotations.list_by_document_and_operator_name(
-                        doc_id, operator_name, skip=skip, limit=limit
+                    response = client.annotations.list_by_document_and_task_name(
+                        doc_id, task_name, skip=skip, limit=limit
                     )
                     items = [
                         self._bind(_build(Annotation, r)) for r in response.annotations
@@ -684,13 +693,13 @@ class Session:
 
             return PaginatedIterator(fetch)
 
-        if operator_id is not None:
-            oid = _as_uuid(operator_id)
+        if task_id is not None:
+            tid = _as_uuid(task_id)
             if hydrated:
 
                 def fetch(skip: int, limit: int) -> PageResult[Annotation]:
-                    response = client.annotations.list_hydrated_by_operator(
-                        oid, skip=skip, limit=limit
+                    response = client.annotations.list_hydrated_by_task(
+                        tid, skip=skip, limit=limit
                     )
                     items = [
                         self._bind(_build(Annotation, r)) for r in response.annotations
@@ -700,9 +709,7 @@ class Session:
                 return PaginatedIterator(fetch)
 
             def fetch(skip: int, limit: int) -> PageResult[Annotation]:
-                response = client.annotations.list_by_operator(
-                    oid, skip=skip, limit=limit
-                )
+                response = client.annotations.list_by_task(tid, skip=skip, limit=limit)
                 items = [
                     self._bind(_build(Annotation, r)) for r in response.annotations
                 ]
@@ -711,7 +718,7 @@ class Session:
             return PaginatedIterator(fetch)
 
         raise ValidationError(
-            "Annotation list requires one of document_id=, chunk_id=, or operator_id="
+            "Annotation list requires one of document_id=, chunk_id=, or task_id="
         )
 
     def query(
@@ -719,8 +726,8 @@ class Session:
     ) -> QueryResult:
         """Execute a SQL query against this project's annotations.
 
-        Each committed operator becomes a table in the query namespace (keyed
-        by operator name), with columns drawn from the operator's JSON schema.
+        Each committed task becomes a table in the query namespace (keyed
+        by task name), with columns drawn from the task's JSON schema.
 
         Args:
             sql (str): The SQL query to run.
@@ -737,7 +744,7 @@ class Session:
 
         Raises:
             QueryError: If the query is malformed or references an unknown
-                operator/column.
+                task/column.
             AuthenticationError: If authentication fails on first access.
         """
         response = self._engine.client.queries.execute(
@@ -756,27 +763,28 @@ class Session:
             provenance=response.provenance,
         )
 
-    def run(self, workflow: Workflow, *, documents: list[Document]) -> Job:
-        """Start a workflow against a batch of documents.
+    def run(self, agent: Agent, *, documents: list[Document]) -> Run:
+        """Run an agent against a batch of documents.
 
-        The workflow and every document must already be committed — this
-        method does not auto-flush the unit of work. Callers can use the
-        returned :class:`Job` to poll for completion or cancel.
+        The agent and every document must already be committed — this
+        method does not auto-flush the unit of work. The server starts one
+        run per document; the returned :class:`Run` is the first of them,
+        which callers can use to poll for completion or cancel.
 
         Args:
-            workflow (Workflow): A committed workflow to execute.
+            agent (Agent): A committed agent to execute.
             documents (list[Document]): Committed documents to process. Must
                 contain at least one document.
 
         Returns:
-            Job: A :class:`Job` handle bound to this session, with ``status``
-            initialized to :attr:`JobStatus.NOT_STARTED`.
+            Run: A :class:`Run` handle bound to this session, with ``status``
+            initialized to :attr:`RunStatus.NOT_STARTED`.
 
         Raises:
-            ValidationError: If the workflow or any document has not yet been
+            ValidationError: If the agent or any document has not yet been
                 committed (i.e. lacks an ``id``).
         """
-        if workflow.id is None:
+        if agent.id is None:
             raise ValidationError(
                 "run() requires committed resources; call session.commit() first"
             )
@@ -786,12 +794,12 @@ class Session:
                     "run() requires committed resources; call session.commit() first"
                 )
 
-        response = self._engine.client.jobs.create_manual(
+        response = self._engine.client.runs.create(
             document_ids=[d.id for d in documents if d.id is not None],
-            workflow_ids=[workflow.id],
+            agent_ids=[agent.id],
         )
-        job = Job(id=response.job_ids[0], status=JobStatus.NOT_STARTED)
-        return self._bind(job)
+        run = Run(id=response.run_ids[0], status=RunStatus.NOT_STARTED)
+        return self._bind(run)
 
     # -- writes (staged) -------------------------------------------------------
 
@@ -803,33 +811,34 @@ class Session:
 
         Args:
             resource (_Resource): The unsaved resource to create. Must be one
-                of :class:`Document`, :class:`DocumentGroup`, :class:`Chunk`,
-                :class:`Annotation`, :class:`Operator`, or :class:`Workflow`,
-                and must not already have a server-assigned id.
+                of :class:`Document`, :class:`DocumentFolder`, :class:`Chunk`,
+                :class:`Annotation`, :class:`Task`, :class:`Agent`, or
+                :class:`AgentNode`, and must not already have a
+                server-assigned id.
 
         Raises:
             ValidationError: If the resource type is read-only (e.g.
-                :class:`Page`), if it is a :class:`Job` (jobs are created via
+                :class:`Page`), if it is a :class:`Run` (runs are started via
                 :meth:`run`), or if the resource already has an id (use
                 :meth:`update` instead).
             TypeError: If the resource type is otherwise unsupported.
         """
         if isinstance(resource, _READ_ONLY_TYPES):
             raise ValidationError(f"{type(resource).__name__} is read-only; cannot add")
-        if isinstance(resource, Job):
+        if isinstance(resource, Run):
             raise ValidationError(
-                "Jobs cannot be added directly; use session.run(workflow, documents=[...])"
+                "Runs cannot be added directly; use session.run(agent, documents=[...])"
             )
         if not isinstance(
             resource,
             (
                 Document,
-                DocumentGroup,
+                DocumentFolder,
                 Chunk,
                 Annotation,
-                Operator,
-                Workflow,
-                WorkflowNode,
+                Task,
+                Agent,
+                AgentNode,
             ),
         ):
             raise TypeError(
@@ -853,8 +862,9 @@ class Session:
 
         Args:
             resource (_Resource): A persisted resource (must have an ``id``).
-                Must be one of :class:`Document`, :class:`DocumentGroup`,
-                :class:`Annotation`, :class:`Operator`, or :class:`Workflow`.
+                Must be one of :class:`Document`, :class:`DocumentFolder`,
+                :class:`Annotation`, :class:`Task`, :class:`Agent`, or
+                :class:`AgentNode`.
 
         Raises:
             ValidationError: If the resource type does not support update
@@ -865,7 +875,7 @@ class Session:
             raise ValidationError(f"{type(resource).__name__} does not support update")
         if not isinstance(
             resource,
-            (Document, DocumentGroup, Annotation, Operator, Workflow, WorkflowNode),
+            (Document, DocumentFolder, Annotation, Task, Agent, AgentNode),
         ):
             raise TypeError(
                 f"update() does not support resource type {type(resource).__name__}"
@@ -890,9 +900,9 @@ class Session:
         Args:
             resource (_Resource): The resource to delete. For
                 already-persisted resources, must have an ``id``. Must be
-                one of :class:`Document`, :class:`DocumentGroup`,
-                :class:`Chunk`, :class:`Annotation`, :class:`Operator`, or
-                :class:`Workflow`.
+                one of :class:`Document`, :class:`DocumentFolder`,
+                :class:`Chunk`, :class:`Annotation`, :class:`Task`,
+                :class:`Agent`, or :class:`AgentNode`.
 
         Raises:
             ValidationError: If the resource type is read-only, or if it has
@@ -907,12 +917,12 @@ class Session:
             resource,
             (
                 Document,
-                DocumentGroup,
+                DocumentFolder,
                 Chunk,
                 Annotation,
-                Operator,
-                Workflow,
-                WorkflowNode,
+                Task,
+                Agent,
+                AgentNode,
             ),
         ):
             raise TypeError(
@@ -988,7 +998,7 @@ class Session:
         """Validate a staged resource before any HTTP calls are made.
 
         Catches the common shape errors (missing file source on a document,
-        annotation without an operator id or attachment target) here so that
+        annotation without a task id or attachment target) here so that
         :meth:`commit` fails fast before any partial writes land.
 
         Args:
@@ -1004,8 +1014,8 @@ class Session:
                     "Document create requires either file_path or source_url"
                 )
         elif isinstance(resource, Annotation):
-            if resource.operator_id is None:
-                raise ValidationError("Annotation create requires operator_id")
+            if resource.task_id is None:
+                raise ValidationError("Annotation create requires task_id")
             if (
                 resource.document_id is None
                 and resource.chunk_id is None
@@ -1014,16 +1024,16 @@ class Session:
                 raise ValidationError(
                     "Annotation create requires one of document_id, chunk_id, or page_id"
                 )
-        elif isinstance(resource, WorkflowNode):
-            if resource.workflow_id is None:
-                raise ValidationError("WorkflowNode create requires workflow_id")
-            if resource.operator_id is None:
-                raise ValidationError("WorkflowNode create requires operator_id")
+        elif isinstance(resource, AgentNode):
+            if resource.agent_id is None:
+                raise ValidationError("AgentNode create requires agent_id")
+            if resource.task_id is None:
+                raise ValidationError("AgentNode create requires task_id")
 
     def refresh(self, resource: _Resource) -> None:
         """Re-fetch a persisted resource and overwrite its fields in place.
 
-        Use this to pick up server-side changes (e.g. to observe a job's
+        Use this to pick up server-side changes (e.g. to observe a run's
         status transition) without allocating a new object.
 
         Args:
@@ -1044,20 +1054,20 @@ class Session:
 
         if isinstance(resource, Document):
             response = client.documents.get(rid)
-        elif isinstance(resource, DocumentGroup):
-            response = client.groups.get(self._engine.project_id, rid)
+        elif isinstance(resource, DocumentFolder):
+            response = client.document_folders.get(self._engine.project_id, rid)
         elif isinstance(resource, Chunk):
             response = client.chunks.get(rid)
         elif isinstance(resource, Page):
             response = client.pages.get(rid)
         elif isinstance(resource, Annotation):
             response = client.annotations.get(rid)
-        elif isinstance(resource, Operator):
-            response = client.operators.get(rid)
-        elif isinstance(resource, Workflow):
-            response = client.workflows.get(rid)
-        elif isinstance(resource, Job):
-            response = client.jobs.get(rid)
+        elif isinstance(resource, Task):
+            response = client.tasks.get(rid)
+        elif isinstance(resource, Agent):
+            response = client.agents.get(rid)
+        elif isinstance(resource, Run):
+            response = client.runs.get(rid)
         else:
             raise TypeError(
                 f"refresh() does not support resource type {type(resource).__name__}"
@@ -1108,7 +1118,7 @@ class Session:
                 file_path=file_path,
                 source_url=resource.source_url,
                 name=resource.name,
-                group_id=resource.group_id,
+                document_folder_id=resource.document_folder_id,
                 file_type=resource.file_type,
                 metadata=resource.metadata,
             )
@@ -1116,10 +1126,12 @@ class Session:
             self._bind(resource)
             return
 
-        if isinstance(resource, DocumentGroup):
+        if isinstance(resource, DocumentFolder):
             if not resource.name:
-                raise ValidationError("DocumentGroup create requires name")
-            response = client.groups.create(self._engine.project_id, name=resource.name)
+                raise ValidationError("DocumentFolder create requires name")
+            response = client.document_folders.create(
+                self._engine.project_id, name=resource.name
+            )
             _copy_fields(resource, response)
             self._bind(resource)
             return
@@ -1146,8 +1158,8 @@ class Session:
             return
 
         if isinstance(resource, Annotation):
-            if resource.operator_id is None:
-                raise ValidationError("Annotation create requires operator_id")
+            if resource.task_id is None:
+                raise ValidationError("Annotation create requires task_id")
             if (
                 resource.document_id is None
                 and resource.chunk_id is None
@@ -1157,7 +1169,7 @@ class Session:
                     "Annotation create requires one of document_id, chunk_id, or page_id"
                 )
             response = client.annotations.create(
-                operator_id=resource.operator_id,
+                task_id=resource.task_id,
                 data=resource.data or {},
                 document_id=resource.document_id,
                 chunk_id=resource.chunk_id,
@@ -1168,26 +1180,26 @@ class Session:
             self._bind(resource)
             return
 
-        if isinstance(resource, Operator):
+        if isinstance(resource, Task):
             if not resource.name:
-                raise ValidationError("Operator create requires name")
+                raise ValidationError("Task create requires name")
             if resource.jsonschema is None and resource.output_schema_id is None:
                 raise ValidationError(
-                    "Operator create requires jsonschema or output_schema_id"
+                    "Task create requires jsonschema or output_schema_id"
                 )
             if (
-                resource.operator_kind == OperatorKind.LLM
+                resource.task_kind == TaskKind.LLM
                 and resource.generation_prompt is None
             ):
-                raise ValidationError("LLM operator create requires generation_prompt")
-            if resource.operator_kind == OperatorKind.CODE and not resource.code_source:
-                raise ValidationError("CODE operator create requires code_source")
+                raise ValidationError("LLM task create requires generation_prompt")
+            if resource.task_kind == TaskKind.CODE and not resource.code_source:
+                raise ValidationError("CODE task create requires code_source")
             if resource.chunk_type is None:
-                raise ValidationError("Operator create requires chunk_type")
-            response = client.operators.create(
+                raise ValidationError("Task create requires chunk_type")
+            response = client.tasks.create(
                 project_id=self._engine.project_id,
                 name=resource.name,
-                operator_kind=resource.operator_kind,
+                task_kind=resource.task_kind,
                 chunk_type=resource.chunk_type,
                 jsonschema=resource.jsonschema,
                 output_schema_id=resource.output_schema_id,
@@ -1203,18 +1215,15 @@ class Session:
                 model_name=resource.model_name,
                 skill_ids=resource.skill_ids,
                 tool_ids=resource.tool_ids,
-                notification_template=resource.notification_template,
-                change_request_prompt=resource.change_request_prompt,
-                change_request_signal=resource.change_request_signal,
             )
             _copy_fields(resource, response)
             self._bind(resource)
             return
 
-        if isinstance(resource, Workflow):
+        if isinstance(resource, Agent):
             if not resource.name:
-                raise ValidationError("Workflow create requires name")
-            response = client.workflows.create(
+                raise ValidationError("Agent create requires name")
+            response = client.agents.create(
                 project_id=self._engine.project_id,
                 name=resource.name,
                 description=resource.description,
@@ -1225,14 +1234,14 @@ class Session:
             self._bind(resource)
             return
 
-        if isinstance(resource, WorkflowNode):
-            if resource.workflow_id is None:
-                raise ValidationError("WorkflowNode create requires workflow_id")
-            if resource.operator_id is None:
-                raise ValidationError("WorkflowNode create requires operator_id")
-            response = client.workflows.add_node(
-                resource.workflow_id,
-                operator_id=resource.operator_id,
+        if isinstance(resource, AgentNode):
+            if resource.agent_id is None:
+                raise ValidationError("AgentNode create requires agent_id")
+            if resource.task_id is None:
+                raise ValidationError("AgentNode create requires task_id")
+            response = client.agents.add_node(
+                resource.agent_id,
+                task_id=resource.task_id,
                 condition=resource.condition,
                 persist=resource.persist,
                 on_error=resource.on_error,
@@ -1265,15 +1274,15 @@ class Session:
             response = client.documents.update(
                 resource.id,  # type: ignore[arg-type]
                 name=resource.name,
-                group_id=resource.group_id,
+                document_folder_id=resource.document_folder_id,
                 storage_path=resource.storage_path,
                 metadata=resource.metadata,
             )
             _copy_fields(resource, response)
             return
 
-        if isinstance(resource, DocumentGroup):
-            response = client.groups.update(
+        if isinstance(resource, DocumentFolder):
+            response = client.document_folders.update(
                 self._engine.project_id,
                 resource.id,  # type: ignore[arg-type]
                 name=resource.name or "",
@@ -1289,34 +1298,31 @@ class Session:
             _copy_fields(resource, response)
             return
 
-        if isinstance(resource, Operator):
-            response = client.operators.update(
+        if isinstance(resource, Task):
+            response = client.tasks.update(
                 resource.id,  # type: ignore[arg-type]
                 name=resource.name,
                 description=resource.description,
                 jsonschema=resource.jsonschema,
                 generation_prompt=resource.generation_prompt,
                 chunk_type=resource.chunk_type,
-                operator_kind=resource.operator_kind,
+                task_kind=resource.task_kind,
                 multi_annotation=resource.multi_annotation,
                 code_source=resource.code_source,
                 network_access=resource.network_access,
                 skill_ids=resource.skill_ids,
                 tool_ids=resource.tool_ids,
-                notification_template=resource.notification_template,
-                change_request_prompt=resource.change_request_prompt,
                 batch_size=resource.batch_size,
                 input_columns=resource.input_columns,
                 code_timeout_seconds=resource.code_timeout_seconds,
                 ai_config_id=resource.ai_config_id,
                 model_name=resource.model_name,
-                change_request_signal=resource.change_request_signal,
             )
             _copy_fields(resource, response)
             return
 
-        if isinstance(resource, Workflow):
-            response = client.workflows.update(
+        if isinstance(resource, Agent):
+            response = client.agents.update(
                 resource.id,  # type: ignore[arg-type]
                 name=resource.name,
                 description=resource.description,
@@ -1326,11 +1332,11 @@ class Session:
             _copy_fields(resource, response)
             return
 
-        if isinstance(resource, WorkflowNode):
-            if resource.workflow_id is None or resource.id is None:
-                raise ValidationError("WorkflowNode update requires workflow_id and id")
-            response = client.workflows.update_node(
-                resource.workflow_id,
+        if isinstance(resource, AgentNode):
+            if resource.agent_id is None or resource.id is None:
+                raise ValidationError("AgentNode update requires agent_id and id")
+            response = client.agents.update_node(
+                resource.agent_id,
                 resource.id,
                 condition=resource.condition,
                 persist=resource.persist,
@@ -1363,8 +1369,11 @@ class Session:
         if isinstance(resource, Document):
             client.documents.delete(resource.id)  # type: ignore[arg-type]
             return
-        if isinstance(resource, DocumentGroup):
-            client.groups.delete(self._engine.project_id, resource.id)  # type: ignore[arg-type]
+        if isinstance(resource, DocumentFolder):
+            client.document_folders.delete(
+                self._engine.project_id,
+                resource.id,  # type: ignore[arg-type]
+            )
             return
         if isinstance(resource, Chunk):
             client.chunks.delete(resource.id)  # type: ignore[arg-type]
@@ -1372,35 +1381,35 @@ class Session:
         if isinstance(resource, Annotation):
             client.annotations.delete(resource.root_id)  # type: ignore[arg-type]
             return
-        if isinstance(resource, Operator):
-            client.operators.delete(resource.id)  # type: ignore[arg-type]
+        if isinstance(resource, Task):
+            client.tasks.delete(resource.id)  # type: ignore[arg-type]
             return
-        if isinstance(resource, Workflow):
-            client.workflows.delete(resource.id)  # type: ignore[arg-type]
+        if isinstance(resource, Agent):
+            client.agents.delete(resource.id)  # type: ignore[arg-type]
             return
-        if isinstance(resource, WorkflowNode):
-            if resource.workflow_id is None or resource.id is None:
-                raise ValidationError("WorkflowNode delete requires workflow_id and id")
-            client.workflows.delete_node(resource.workflow_id, resource.id)
+        if isinstance(resource, AgentNode):
+            if resource.agent_id is None or resource.id is None:
+                raise ValidationError("AgentNode delete requires agent_id and id")
+            client.agents.delete_node(resource.agent_id, resource.id)
             return
 
         raise TypeError(f"delete dispatch not supported for {type(resource).__name__}")
 
     # -- internal --------------------------------------------------------------
 
-    def _document_job(self, document_id: UUID) -> Job:
-        """Fetch a document's latest job as a bound :class:`Job`.
+    def _document_run(self, document_id: UUID) -> Run:
+        """Fetch a document's latest run as a bound :class:`Run`.
 
-        Backs :meth:`Document.job`.
+        Backs :meth:`Document.latest_run`.
 
         Args:
-            document_id (UUID): The document whose job to fetch.
+            document_id (UUID): The document whose run to fetch.
 
         Returns:
-            Job: The job, bound to this session.
+            Run: The run, bound to this session.
         """
-        response = self._engine.client.documents.get_job(document_id)
-        return self._bind(_build(Job, response))
+        response = self._engine.client.documents.get_run(document_id)
+        return self._bind(_build(Run, response))
 
     def _bind(self, resource: T) -> T:
         """Attach this session to ``resource`` and return it for chaining.
@@ -1425,13 +1434,13 @@ class Session:
         Supported navigations:
 
         - :class:`Document` → :class:`Chunk`, :class:`Page`,
-          :class:`Annotation` (optional ``operator=`` an :class:`Operator` or
-          name, or ``operator_name=``)
+          :class:`Annotation` (optional ``task=`` a :class:`Task` or
+          name, or ``task_name=`` / ``task_id=``)
         - :class:`Chunk` → :class:`Annotation`
-        - :class:`DocumentGroup` → :class:`Document`
-        - :class:`Operator` → :class:`Annotation` (optional ``document=`` a
+        - :class:`DocumentFolder` → :class:`Document`
+        - :class:`Task` → :class:`Annotation` (optional ``document=`` a
           :class:`Document` or id to scope, ``hydrated=True`` for joined
-          operator metadata)
+          task metadata)
 
         Args:
             parent (_Resource): The resource to navigate from.
@@ -1453,21 +1462,26 @@ class Session:
             if resource_type is Page:
                 return self.list(Page, document_id=parent.id)  # type: ignore[return-value]
             if resource_type is Annotation:
-                operator = kwargs.get("operator")
-                if isinstance(operator, Operator):
-                    # By name where possible: the operator-id endpoint omits
+                task = kwargs.get("task")
+                if isinstance(task, Task):
+                    # By name where possible: the task-id endpoint omits
                     # each annotation's root_id.
-                    if operator.name is None:
+                    if task.name is None:
                         return self.list(  # type: ignore[return-value]
-                            Annotation, document_id=parent.id, operator_id=operator.id
+                            Annotation, document_id=parent.id, task_id=task.id
                         )
-                    operator = operator.name
-                operator_name = kwargs.get("operator_name") or operator
-                if operator_name is not None:
+                    task = task.name
+                task_name = kwargs.get("task_name") or task
+                if task_name is not None:
                     return self.list(  # type: ignore[return-value]
                         Annotation,
                         document_id=parent.id,
-                        operator_name=operator_name,
+                        task_name=task_name,
+                    )
+                task_id = kwargs.get("task_id")
+                if task_id is not None:
+                    return self.list(  # type: ignore[return-value]
+                        Annotation, document_id=parent.id, task_id=task_id
                     )
                 return self.list(Annotation, document_id=parent.id)  # type: ignore[return-value]
 
@@ -1475,18 +1489,18 @@ class Session:
             if resource_type is Annotation:
                 return self.list(Annotation, chunk_id=parent.id)  # type: ignore[return-value]
 
-        if isinstance(parent, DocumentGroup):
+        if isinstance(parent, DocumentFolder):
             if resource_type is Document:
-                group_id = parent.id
-                if group_id is None:
+                document_folder_id = parent.id
+                if document_folder_id is None:
                     raise ValidationError(
-                        "DocumentGroup must have an id to list its documents"
+                        "DocumentFolder must have an id to list its documents"
                     )
                 client = self._engine.client
 
                 def fetch(skip: int, limit: int) -> PageResult[Document]:
-                    response = client.groups.list_documents(
-                        group_id, skip=skip, limit=limit
+                    response = client.document_folders.list_documents(
+                        document_folder_id, skip=skip, limit=limit
                     )
                     items = [
                         self._bind(_build(Document, r)) for r in response.documents
@@ -1495,7 +1509,7 @@ class Session:
 
                 return PaginatedIterator(fetch)  # type: ignore[return-value]
 
-        if isinstance(parent, Operator):
+        if isinstance(parent, Task):
             if resource_type is Annotation:
                 doc = kwargs.get("document")
                 if doc is not None:
@@ -1503,15 +1517,15 @@ class Session:
                     # By name where possible, as for Document → Annotation.
                     if parent.name is None:
                         return self.list(  # type: ignore[return-value]
-                            Annotation, document_id=doc_id, operator_id=parent.id
+                            Annotation, document_id=doc_id, task_id=parent.id
                         )
                     return self.list(  # type: ignore[return-value]
                         Annotation,
                         document_id=doc_id,
-                        operator_name=parent.name,
+                        task_name=parent.name,
                     )
                 hydrated = kwargs.get("hydrated", False)
-                return self.list(Annotation, operator_id=parent.id, hydrated=hydrated)  # type: ignore[return-value]
+                return self.list(Annotation, task_id=parent.id, hydrated=hydrated)  # type: ignore[return-value]
 
         raise TypeError(
             f"{type(parent).__name__} does not support list({resource_type.__name__})"

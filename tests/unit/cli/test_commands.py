@@ -14,12 +14,12 @@ from ragnerock.cli import app as app_module
 from ragnerock.cli import commands
 from ragnerock.cli.app import app
 from ragnerock.resources import (
+    Agent,
     ChunkType,
     Document,
     FileType,
-    JobStatus,
-    Operator,
-    Workflow,
+    RunStatus,
+    Task,
 )
 
 
@@ -54,8 +54,8 @@ def fake_session(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     return session
 
 
-def _operator(name: str = "sentiment") -> Operator:
-    return Operator(
+def _task(name: str = "sentiment") -> Task:
+    return Task(
         id=UUID("00000000-0000-0000-0000-000000000601"),
         project_id=UUID("00000000-0000-0000-0000-000000000001"),
         name=name,
@@ -74,8 +74,8 @@ def _document(name: str = "doc.pdf") -> Document:
     )
 
 
-def _workflow(name: str = "pipeline") -> Workflow:
-    return Workflow(
+def _agent(name: str = "pipeline") -> Agent:
+    return Agent(
         id=UUID("00000000-0000-0000-0000-000000000701"),
         name=name,
         is_active=True,
@@ -96,32 +96,67 @@ def test_version_prints_package_version(runner: CliRunner) -> None:
 
 def test_get_list_json(runner: CliRunner, fake_session: MagicMock) -> None:
     iterator = MagicMock()
-    iterator.all.return_value = [_operator("a"), _operator("b")]
+    iterator.all.return_value = [_task("a"), _task("b")]
     fake_session.list.return_value = iterator
 
-    result = runner.invoke(app, ["get", "op", "-o", "json"])
+    result = runner.invoke(app, ["get", "tasks", "-o", "json"])
     assert result.exit_code == 0, result.stderr
     assert '"sentiment"' not in result.stdout or '"a"' in result.stdout
+    assert fake_session.list.call_args.args == (Task,)
+
+
+def test_get_annotations_translates_task_filters(
+    runner: CliRunner, fake_session: MagicMock
+) -> None:
+    iterator = MagicMock()
+    iterator.all.return_value = []
+    fake_session.list.return_value = iterator
+
+    result = runner.invoke(
+        app,
+        [
+            "get",
+            "annotations",
+            "--filter",
+            "document=00000000-0000-0000-0000-000000000101",
+            "--filter",
+            "task-name=sentiment",
+        ],
+    )
+    assert result.exit_code == 0, result.stderr
+    assert fake_session.list.call_args.kwargs == {
+        "document_id": "00000000-0000-0000-0000-000000000101",
+        "task_name": "sentiment",
+    }
+
+    result = runner.invoke(
+        app,
+        ["get", "annotations", "--filter", "task=00000000-0000-0000-0000-000000000601"],
+    )
+    assert result.exit_code == 0, result.stderr
+    assert fake_session.list.call_args.kwargs == {
+        "task_id": "00000000-0000-0000-0000-000000000601"
+    }
 
 
 def test_get_by_name_yaml(runner: CliRunner, fake_session: MagicMock) -> None:
-    fake_session.get.return_value = _operator("sentiment")
-    result = runner.invoke(app, ["get", "operator", "sentiment", "-o", "yaml"])
+    fake_session.get.return_value = _task("sentiment")
+    result = runner.invoke(app, ["get", "task", "sentiment", "-o", "yaml"])
     assert result.exit_code == 0, result.stderr
-    assert "operator_kind: LLM" in result.stdout
+    assert "task_kind: LLM" in result.stdout
     assert "name: sentiment" in result.stdout
 
 
 def test_get_missing_returns_exit_1(runner: CliRunner, fake_session: MagicMock) -> None:
     fake_session.get.return_value = None
-    result = runner.invoke(app, ["get", "op", "missing"])
+    result = runner.invoke(app, ["get", "task", "missing"])
     assert result.exit_code == 1
     assert "not found" in result.stderr
 
 
 def test_describe_defaults_to_yaml(runner: CliRunner, fake_session: MagicMock) -> None:
-    fake_session.get.return_value = _operator("sentiment")
-    result = runner.invoke(app, ["describe", "op", "sentiment"])
+    fake_session.get.return_value = _task("sentiment")
+    result = runner.invoke(app, ["describe", "task", "sentiment"])
     assert result.exit_code == 0, result.stderr
     assert "name: sentiment" in result.stdout
     assert "generation_prompt: Classify" in result.stdout
@@ -130,8 +165,8 @@ def test_describe_defaults_to_yaml(runner: CliRunner, fake_session: MagicMock) -
 def test_describe_accepts_output_flag(
     runner: CliRunner, fake_session: MagicMock
 ) -> None:
-    fake_session.get.return_value = _operator("sentiment")
-    result = runner.invoke(app, ["describe", "op", "sentiment", "-o", "json"])
+    fake_session.get.return_value = _task("sentiment")
+    result = runner.invoke(app, ["describe", "task", "sentiment", "-o", "json"])
     assert result.exit_code == 0, result.stderr
     assert result.stdout.strip().startswith("[")
 
@@ -148,19 +183,28 @@ def test_unknown_kind_exits_with_error(
 
 
 def test_delete_by_kind_and_name(runner: CliRunner, fake_session: MagicMock) -> None:
-    fake_session.get.return_value = _operator("sentiment")
-    result = runner.invoke(app, ["delete", "op", "sentiment"])
+    fake_session.get.return_value = _task("sentiment")
+    result = runner.invoke(app, ["delete", "task", "sentiment"])
     assert result.exit_code == 0, result.stderr
     fake_session.delete.assert_called()
     fake_session.commit.assert_called()
-    assert "operator/sentiment deleted" in result.stdout
+    assert "task/sentiment deleted" in result.stdout
 
 
 def test_delete_not_found(runner: CliRunner, fake_session: MagicMock) -> None:
     fake_session.get.return_value = None
-    result = runner.invoke(app, ["delete", "op", "missing"])
+    result = runner.invoke(app, ["delete", "task", "missing"])
     assert result.exit_code == 1
-    assert "not found" in result.stderr
+    assert "task/missing not found" in result.stderr
+
+
+def test_delete_old_kind_name_is_unknown(
+    runner: CliRunner, fake_session: MagicMock
+) -> None:
+    result = runner.invoke(app, ["delete", "operator", "sentiment"])
+    assert result.exit_code == 1
+    assert "Unknown resource kind" in result.stderr
+    fake_session.delete.assert_not_called()
 
 
 def test_delete_refuses_non_deletable_kind(
@@ -180,35 +224,43 @@ def test_delete_no_longer_accepts_files(runner: CliRunner) -> None:
 # -- run -------------------------------------------------------------------
 
 
-def test_run_kicks_off_job_no_wait(runner: CliRunner, fake_session: MagicMock) -> None:
-    workflow = _workflow()
+def test_run_kicks_off_run_no_wait(runner: CliRunner, fake_session: MagicMock) -> None:
+    agent = _agent()
     doc = _document("report.pdf")
 
     def get_side_effect(cls: Any, **kwargs: Any) -> Any:
-        if cls is Workflow:
-            return workflow
+        if cls is Agent:
+            return agent
         if cls is Document:
             return doc
         return None
 
     fake_session.get.side_effect = get_side_effect
-    job = MagicMock()
-    job.id = UUID("00000000-0000-0000-0000-000000000801")
-    job.status = JobStatus.NOT_STARTED
-    fake_session.run.return_value = job
+    run = MagicMock()
+    run.id = UUID("00000000-0000-0000-0000-000000000801")
+    run.status = RunStatus.NOT_STARTED
+    fake_session.run.return_value = run
 
     result = runner.invoke(app, ["run", "pipeline", "--documents", "report.pdf"])
     assert result.exit_code == 0, result.stderr
-    fake_session.run.assert_called_once()
-    assert "started" in result.stdout
+    fake_session.run.assert_called_once_with(agent, documents=[doc])
+    assert result.stdout.strip() == f"run/{run.id} started"
+
+
+def test_run_reports_missing_agent(runner: CliRunner, fake_session: MagicMock) -> None:
+    fake_session.get.return_value = None
+    result = runner.invoke(app, ["run", "nope", "--documents", "a.pdf"])
+    assert result.exit_code == 1
+    assert "agent/nope not found" in result.stderr
+    fake_session.run.assert_not_called()
 
 
 def test_run_reports_all_missing_documents(
     runner: CliRunner, fake_session: MagicMock
 ) -> None:
     def get_side_effect(cls: Any, **kwargs: Any) -> Any:
-        if cls is Workflow:
-            return _workflow()
+        if cls is Agent:
+            return _agent()
         return None
 
     fake_session.get.side_effect = get_side_effect
@@ -221,24 +273,24 @@ def test_run_reports_all_missing_documents(
 def test_run_wait_exits_nonzero_on_failure(
     runner: CliRunner, fake_session: MagicMock
 ) -> None:
-    workflow = _workflow()
+    agent = _agent()
     doc = _document("report.pdf")
 
     def get_side_effect(cls: Any, **kwargs: Any) -> Any:
-        if cls is Workflow:
-            return workflow
+        if cls is Agent:
+            return agent
         if cls is Document:
             return doc
         return None
 
     fake_session.get.side_effect = get_side_effect
-    job = MagicMock()
-    job.id = UUID("00000000-0000-0000-0000-000000000801")
-    job.status = JobStatus.FAILED
-    fake_session.run.return_value = job
+    run = MagicMock()
+    run.id = UUID("00000000-0000-0000-0000-000000000801")
+    run.status = RunStatus.FAILED
+    fake_session.run.return_value = run
 
     result = runner.invoke(
         app, ["run", "pipeline", "--documents", "report.pdf", "--wait"]
     )
     assert result.exit_code == 2
-    assert "FAILED" in result.stdout or "FAILED" in result.stderr
+    assert f"run/{run.id} finished with status FAILED" in result.stdout

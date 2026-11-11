@@ -11,12 +11,12 @@ from ragnerock import (
     Annotation,
     Chunk,
     Document,
-    Operator,
+    Task,
     ValidationError,
 )
 
-# What the document + operator-name endpoint returns per annotation: no
-# operator or document ids, just identity, chunk, and values.
+# What the document + task-name endpoint returns per annotation: no
+# task or document ids, just identity, chunk, and values.
 _SCOPED_ANNOTATION = {
     "root_id": "00000000-0000-0000-0000-000000000502",
     "chunk_id": None,
@@ -63,40 +63,40 @@ class TestListByDocument:
         ).all()
         assert len(anns) == 1
 
-    def test_list_by_document_and_operator_id_hits_scoped_endpoint(
+    def test_list_by_document_and_task_id_hits_scoped_endpoint(
         self, httpx_mock, session, payloads
     ):
         httpx_mock.add_response(
             method="GET",
-            url=re.compile(r".*/api/annotations/document/.*/operator/.*"),
+            url=re.compile(r".*/api/annotations/document/.*/task/.*"),
             json=payloads.list_envelope("annotations", [payloads.annotation()]),
         )
         session.list(
             Annotation,
             document_id="00000000-0000-0000-0000-000000000101",
-            operator_id="00000000-0000-0000-0000-000000000601",
+            task_id="00000000-0000-0000-0000-000000000601",
         ).all()
         req = next(
             r
             for r in httpx_mock.get_requests()
-            if "/annotations/document/" in r.url.path and "/operator/" in r.url.path
+            if "/annotations/document/" in r.url.path and "/task/" in r.url.path
         )
         assert req is not None
 
-    def test_list_by_document_and_operator_name_hits_name_endpoint(
+    def test_list_by_document_and_task_name_hits_name_endpoint(
         self, httpx_mock, session, payloads
     ):
         httpx_mock.add_response(
             method="GET",
             url=re.compile(
-                r".*/api/annotations/document/.*/operator-name/invoice_extract.*"
+                r".*/api/annotations/document/.*/task-name/invoice_extract.*"
             ),
             json=payloads.list_envelope("annotations", [payloads.annotation()]),
         )
         session.list(
             Annotation,
             document_id="00000000-0000-0000-0000-000000000101",
-            operator_name="invoice_extract",
+            task_name="invoice_extract",
         ).all()
 
 
@@ -113,26 +113,24 @@ class TestListByChunk:
         assert len(anns) == 1
 
 
-class TestListByOperator:
+class TestListByTask:
     def test_plain_list(self, httpx_mock, session, payloads):
         httpx_mock.add_response(
             method="GET",
-            url=re.compile(r".*/api/annotations/operator/[^/]+\?.*"),
+            url=re.compile(r".*/api/annotations/task/[^/]+\?.*"),
             json=payloads.list_envelope("annotations", [payloads.annotation()]),
         )
-        session.list(
-            Annotation, operator_id="00000000-0000-0000-0000-000000000601"
-        ).all()
+        session.list(Annotation, task_id="00000000-0000-0000-0000-000000000601").all()
 
     def test_hydrated_list(self, httpx_mock, session, payloads):
         httpx_mock.add_response(
             method="GET",
-            url=re.compile(r".*/api/annotations/operator/.*/hydrated.*"),
+            url=re.compile(r".*/api/annotations/task/.*/hydrated.*"),
             json=payloads.list_envelope("annotations", [payloads.annotation()]),
         )
         session.list(
             Annotation,
-            operator_id="00000000-0000-0000-0000-000000000601",
+            task_id="00000000-0000-0000-0000-000000000601",
             hydrated=True,
         ).all()
 
@@ -147,7 +145,7 @@ class TestCreate:
             ),
         )
         ann = Annotation(
-            operator_id="00000000-0000-0000-0000-000000000601",
+            task_id="00000000-0000-0000-0000-000000000601",
             document_id="00000000-0000-0000-0000-000000000101",
             data={"total": 10.5},
         )
@@ -155,7 +153,7 @@ class TestCreate:
         session.commit()
         assert ann.root_id is not None
 
-    def test_create_requires_operator_id(self, session):
+    def test_create_requires_task_id(self, session):
         ann = Annotation(
             document_id="00000000-0000-0000-0000-000000000101",
             data={"x": 1},
@@ -166,7 +164,7 @@ class TestCreate:
 
     def test_create_requires_attachment_point(self, session):
         ann = Annotation(
-            operator_id="00000000-0000-0000-0000-000000000601",
+            task_id="00000000-0000-0000-0000-000000000601",
             data={"x": 1},
         )
         session.add(ann)
@@ -222,49 +220,47 @@ class TestParentNavigation:
         )
         assert len(chunk.list(Annotation).all()) == 1
 
-    def test_operator_list_annotations(self, httpx_mock, session, payloads):
-        op = Operator(**payloads.operator())
-        session._bind(op)
+    def test_task_list_annotations(self, httpx_mock, session, payloads):
+        task = Task(**payloads.task())
+        session._bind(task)
         httpx_mock.add_response(
             method="GET",
-            url=re.compile(r".*/api/annotations/operator/.*"),
+            url=re.compile(r".*/api/annotations/task/.*"),
             json=payloads.list_envelope("annotations", [payloads.annotation()]),
         )
-        assert len(op.list(Annotation).all()) == 1
+        assert len(task.list(Annotation).all()) == 1
 
-    def test_document_list_annotations_by_operator_object(
+    def test_document_list_annotations_by_task_object(
         self, httpx_mock, session, payloads
     ):
         # Routed by name: only that endpoint returns each annotation's root_id.
         doc = Document(**payloads.document())
-        op = Operator(**payloads.operator())
+        task = Task(**payloads.task())
         session._bind(doc)
         httpx_mock.add_response(
             method="GET",
             url=re.compile(
-                rf".*/api/annotations/document/{doc.id}/operator-name/{op.name}\?.*"
+                rf".*/api/annotations/document/{doc.id}/task-name/{task.name}\?.*"
             ),
             json=payloads.list_envelope("annotations", [_SCOPED_ANNOTATION]),
         )
-        anns = doc.list(Annotation, operator=op).all()
+        anns = doc.list(Annotation, task=task).all()
         assert [a.root_id for a in anns] == [UUID(_SCOPED_ANNOTATION["root_id"])]
 
-    def test_document_list_annotations_by_unnamed_operator_uses_id(
+    def test_document_list_annotations_by_unnamed_task_uses_id(
         self, httpx_mock, session, payloads
     ):
         doc = Document(**payloads.document())
-        op = Operator(**payloads.operator(name=None))
+        task = Task(**payloads.task(name=None))
         session._bind(doc)
         httpx_mock.add_response(
             method="GET",
-            url=re.compile(
-                rf".*/api/annotations/document/{doc.id}/operator/{op.id}\?.*"
-            ),
+            url=re.compile(rf".*/api/annotations/document/{doc.id}/task/{task.id}\?.*"),
             json=payloads.list_envelope("annotations", [payloads.annotation()]),
         )
-        assert len(doc.list(Annotation, operator=op).all()) == 1
+        assert len(doc.list(Annotation, task=task).all()) == 1
 
-    def test_document_list_annotations_by_operator_name(
+    def test_document_list_annotations_by_task_name(
         self, httpx_mock, session, payloads
     ):
         doc = Document(**payloads.document())
@@ -272,62 +268,89 @@ class TestParentNavigation:
         httpx_mock.add_response(
             method="GET",
             url=re.compile(
-                r".*/api/annotations/document/.*/operator-name/invoice_extract\?.*"
+                r".*/api/annotations/document/.*/task-name/invoice_extract\?.*"
             ),
             json=payloads.list_envelope("annotations", [payloads.annotation()]),
         )
-        assert len(doc.list(Annotation, operator="invoice_extract").all()) == 1
+        assert len(doc.list(Annotation, task="invoice_extract").all()) == 1
 
-    def test_operator_list_annotations_scoped_by_document_id(
+    def test_document_list_annotations_by_task_name_kwarg(
         self, httpx_mock, session, payloads
     ):
-        op = Operator(**payloads.operator())
-        session._bind(op)
+        doc = Document(**payloads.document())
+        session._bind(doc)
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(
+                r".*/api/annotations/document/.*/task-name/invoice_extract\?.*"
+            ),
+            json=payloads.list_envelope("annotations", [_SCOPED_ANNOTATION]),
+        )
+        anns = doc.list(Annotation, task_name="invoice_extract").all()
+        assert [a.root_id for a in anns] == [UUID(_SCOPED_ANNOTATION["root_id"])]
+
+    def test_document_list_annotations_by_task_id_kwarg(
+        self, httpx_mock, session, payloads
+    ):
+        doc = Document(**payloads.document())
+        session._bind(doc)
+        task_id = "00000000-0000-0000-0000-000000000601"
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(rf".*/api/annotations/document/{doc.id}/task/{task_id}\?.*"),
+            json=payloads.list_envelope("annotations", [payloads.annotation()]),
+        )
+        anns = doc.list(Annotation, task_id=task_id).all()
+        assert [str(a.task_id) for a in anns] == [task_id]
+
+    def test_task_list_annotations_scoped_by_document_id(
+        self, httpx_mock, session, payloads
+    ):
+        task = Task(**payloads.task())
+        session._bind(task)
         doc_id = "00000000-0000-0000-0000-000000000101"
         httpx_mock.add_response(
             method="GET",
             url=re.compile(
-                rf".*/api/annotations/document/{doc_id}/operator-name/{op.name}\?.*"
+                rf".*/api/annotations/document/{doc_id}/task-name/{task.name}\?.*"
             ),
             json=payloads.list_envelope("annotations", [_SCOPED_ANNOTATION]),
         )
-        anns = op.list(Annotation, document=doc_id).all()
+        anns = task.list(Annotation, document=doc_id).all()
         assert [a.root_id for a in anns] == [UUID(_SCOPED_ANNOTATION["root_id"])]
 
-    def test_operator_list_annotations_by_document_object(
+    def test_task_list_annotations_by_document_object(
         self, httpx_mock, session, payloads
     ):
-        op = Operator(**payloads.operator())
+        task = Task(**payloads.task())
         doc = Document(**payloads.document())
-        session._bind(op)
+        session._bind(task)
         httpx_mock.add_response(
             method="GET",
             url=re.compile(
-                rf".*/api/annotations/document/{doc.id}/operator-name/{op.name}\?.*"
+                rf".*/api/annotations/document/{doc.id}/task-name/{task.name}\?.*"
             ),
             json=payloads.list_envelope("annotations", [_SCOPED_ANNOTATION]),
         )
-        anns = op.list(Annotation, document=doc).all()
+        anns = task.list(Annotation, document=doc).all()
         assert [a.root_id for a in anns] == [UUID(_SCOPED_ANNOTATION["root_id"])]
 
-    def test_unnamed_operator_list_annotations_by_document_uses_id(
+    def test_unnamed_task_list_annotations_by_document_uses_id(
         self, httpx_mock, session, payloads
     ):
-        op = Operator(**payloads.operator(name=None))
-        session._bind(op)
+        task = Task(**payloads.task(name=None))
+        session._bind(task)
         doc_id = "00000000-0000-0000-0000-000000000101"
         httpx_mock.add_response(
             method="GET",
-            url=re.compile(
-                rf".*/api/annotations/document/{doc_id}/operator/{op.id}\?.*"
-            ),
+            url=re.compile(rf".*/api/annotations/document/{doc_id}/task/{task.id}\?.*"),
             json=payloads.list_envelope("annotations", [payloads.annotation()]),
         )
-        assert len(op.list(Annotation, document=doc_id).all()) == 1
+        assert len(task.list(Annotation, document=doc_id).all()) == 1
 
 
 class TestLazyNavigation:
-    def test_document_and_operator_are_fetched_on_access(
+    def test_document_and_task_are_fetched_on_access(
         self, httpx_mock, session, payloads
     ):
         anno = Annotation(**payloads.annotation())
@@ -339,13 +362,13 @@ class TestLazyNavigation:
         )
         httpx_mock.add_response(
             method="GET",
-            url=re.compile(rf".*/api/operators/{anno.operator_id}$"),
-            json=payloads.operator(),
+            url=re.compile(rf".*/api/tasks/{anno.task_id}$"),
+            json=payloads.task(),
         )
         document = anno.document
-        operator = anno.operator
+        task = anno.task
         assert document is not None and document.name == "sample.pdf"
-        assert operator is not None and operator.name == "invoice_extract"
+        assert task is not None and task.name == "invoice_extract"
 
     def test_unset_targets_return_none_without_a_request(
         self, httpx_mock, session, payloads

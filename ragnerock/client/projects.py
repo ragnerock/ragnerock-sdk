@@ -21,7 +21,7 @@ class ProjectResponse(_ApiModel):
     owner_id: UUID | None = None
     owner_email: str | None = None
     account_id: UUID | None = None
-    auto_archive_succeeded_jobs_after_days: int | None = None
+    auto_archive_succeeded_runs_after_days: int | None = None
 
 
 class ProjectListResponse(_ApiModel):

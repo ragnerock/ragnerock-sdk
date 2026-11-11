@@ -16,6 +16,7 @@ from ragnerock.client.endpoints import (
     LATEST_SNAPSHOT_TAG,
     EndpointCreateResponse,
     EndpointExecutionListResponse,
+    EndpointExecutionResponse,
     EndpointKeyRegenerateResponse,
     EndpointListResponse,
     EndpointResponse,
@@ -39,7 +40,8 @@ from tests.unit.conftest import TEST_HOST
 
 ENDPOINT_ID = "00000000-0000-0000-0000-0000000000c1"
 TASK_ID = "00000000-0000-0000-0000-0000000000d1"
-WORKFLOW_ID = "00000000-0000-0000-0000-0000000000e1"
+AGENT_ID = "00000000-0000-0000-0000-0000000000e1"
+SCORER_TASK_ID = "00000000-0000-0000-0000-0000000000e2"
 CONFIG_ID = "00000000-0000-0000-0000-0000000000f1"
 NOW = "2026-09-08T00:00:00Z"
 BASE = f"/api/projects/{PROJECT_ID}/endpoints"
@@ -54,9 +56,9 @@ def _endpoint(**overrides: Any) -> dict[str, Any]:
         "name": "W-2 Extractor",
         "description": None,
         "is_enabled": True,
-        "endpoint_type": "WORKFLOW",
-        "workflow_id": WORKFLOW_ID,
-        "source_workflow_id": WORKFLOW_ID,
+        "endpoint_type": "AGENT",
+        "agent_id": AGENT_ID,
+        "source_agent_id": AGENT_ID,
         "accepted_file_types": ["pdf"],
         "return_fields": [],
         "include_content": False,
@@ -67,12 +69,12 @@ def _endpoint(**overrides: Any) -> dict[str, Any]:
         "default_params": None,
         "ip_whitelist": None,
         "rate_limit_rpm": 60,
-        "auto_archive_jobs": False,
+        "auto_archive_runs": False,
         "api_key_prefix": "rgnk_ep_a1b2",
         "api_key_expires_at": None,
         "active_snapshot_id": None,
         "snapshot_tag": "latest",
-        "resources": [],
+        "inputs": [],
         "mcp_tool_name": "extract_w2",
         "mcp_tool_name_effective": "extract_w2",
         "mcp_tool_description": None,
@@ -88,8 +90,8 @@ def _compat_endpoint(**overrides: Any) -> dict[str, Any]:
     return _endpoint(
         name="Compat",
         endpoint_type="MODEL_COMPAT",
-        workflow_id=None,
-        source_workflow_id=None,
+        agent_id=None,
+        source_agent_id=None,
         accepted_file_types=None,
         return_fields=None,
         compat_format="OPENAI",
@@ -114,7 +116,7 @@ def _metric() -> dict[str, Any]:
 
 
 class TestCreate:
-    def test_workflow_create(self, httpx_mock, client: RagnerockClient) -> None:
+    def test_agent_create(self, httpx_mock, client: RagnerockClient) -> None:
         httpx_mock.add_response(
             method="POST",
             url=url(f"{BASE}/"),
@@ -124,9 +126,9 @@ class TestCreate:
         result = client.endpoints.create(
             UUID(PROJECT_ID),
             name="W-2 Extractor",
-            workflow_id=UUID(WORKFLOW_ID),
+            agent_id=UUID(AGENT_ID),
             accepted_file_types=["pdf"],
-            return_fields=[{"operator_id": WORKFLOW_ID, "field_name": "wages"}],
+            return_fields=[{"task_id": SCORER_TASK_ID, "field_name": "wages"}],
             mcp_tool_name="extract_w2",
             mcp_tool_description="Pulls wages off a W-2.",
         )
@@ -134,15 +136,15 @@ class TestCreate:
         assert last_request(httpx_mock).method == "POST"
         assert last_json(httpx_mock) == {
             "name": "W-2 Extractor",
-            "endpoint_type": "WORKFLOW",
-            "workflow_id": WORKFLOW_ID,
+            "endpoint_type": "AGENT",
+            "agent_id": AGENT_ID,
             "accepted_file_types": ["pdf"],
-            "return_fields": [{"operator_id": WORKFLOW_ID, "field_name": "wages"}],
+            "return_fields": [{"task_id": SCORER_TASK_ID, "field_name": "wages"}],
             "include_content": False,
             "snapshot_tag": LATEST_SNAPSHOT_TAG,
             "ephemeral": False,
             "rate_limit_rpm": 60,
-            "auto_archive_jobs": False,
+            "auto_archive_runs": False,
             "mcp_tool_name": "extract_w2",
             "mcp_tool_description": "Pulls wages off a W-2.",
         }
@@ -150,6 +152,9 @@ class TestCreate:
         assert result.api_key == "rgnk_ep_plaintext"
         assert result.signing_secret == "secret"
         assert result.mcp_tool_name_effective == "extract_w2"
+        assert result.endpoint_type == EndpointType.AGENT
+        assert result.agent_id == UUID(AGENT_ID)
+        assert result.source_agent_id == UUID(AGENT_ID)
 
     def test_omitting_the_tool_name_leaves_it_to_the_server(
         self, httpx_mock, client: RagnerockClient
@@ -164,7 +169,7 @@ class TestCreate:
         client.endpoints.create(
             UUID(PROJECT_ID),
             name="W-2 Extractor",
-            workflow_id=UUID(WORKFLOW_ID),
+            agent_id=UUID(AGENT_ID),
             accepted_file_types=["pdf"],
             return_fields=[],
         )
@@ -202,7 +207,7 @@ class TestCreate:
         assert body["default_params"] == {"temperature": 0.3}
         assert body["ip_whitelist"] == ["10.0.0.0/8"]
         assert body["api_key_expires_in_days"] == 30
-        assert "workflow_id" not in body
+        assert "agent_id" not in body
         assert result.endpoint_type == EndpointType.MODEL_COMPAT
         assert result.compat_format == CompatFormat.OPENAI
 
@@ -220,7 +225,7 @@ class TestRead:
         assert last_params(httpx_mock) == {"skip": "0", "limit": "50"}
         assert isinstance(result, EndpointListResponse)
         assert result.total == 2
-        assert [e.endpoint_type for e in result.items] == ["WORKFLOW", "MODEL_COMPAT"]
+        assert [e.endpoint_type for e in result.items] == ["AGENT", "MODEL_COMPAT"]
 
     def test_get_reports_both_tool_names(
         self, httpx_mock, client: RagnerockClient
@@ -249,6 +254,21 @@ class TestRead:
 
         assert result.mcp_tool_name is None
         assert result.mcp_tool_name_effective == "w_2_extractor"
+
+    def test_get_reads_the_snapshot_inputs(
+        self, httpx_mock, client: RagnerockClient
+    ) -> None:
+        inputs = [{"id": CONFIG_ID, "name": "w2", "input_type": "file"}]
+        httpx_mock.add_response(
+            method="GET",
+            url=url(f"{BASE}/{ENDPOINT_ID}"),
+            json=_endpoint(inputs=inputs, auto_archive_runs=True),
+        )
+
+        result = client.endpoints.get(UUID(PROJECT_ID), UUID(ENDPOINT_ID))
+
+        assert result.inputs == inputs
+        assert result.auto_archive_runs is True
 
     def test_get_missing_raises(self, httpx_mock, client: RagnerockClient) -> None:
         httpx_mock.add_response(
@@ -327,13 +347,13 @@ class TestUpdate:
             httpx_mock,
             client,
             is_enabled=False,
-            auto_archive_jobs=True,
+            auto_archive_runs=True,
             rate_limit_rpm=120,
             description=UNSET,
         )
         assert body == {
             "is_enabled": False,
-            "auto_archive_jobs": True,
+            "auto_archive_runs": True,
             "rate_limit_rpm": 120,
         }
 
@@ -445,7 +465,6 @@ class TestMetrics:
                 "items": [
                     {
                         "id": TASK_ID,
-                        "task_id": TASK_ID,
                         "request_id": TASK_ID,
                         "status": "succeeded",
                         "created_at": NOW,
@@ -473,6 +492,9 @@ class TestMetrics:
         assert isinstance(result, EndpointExecutionListResponse)
         assert result.items[0].status == EndpointTaskStatus.SUCCEEDED
         assert result.items[0].compute_seconds == 1.2
+        # The execution's id is the task id callers poll; there is no copy.
+        assert result.items[0].id == UUID(TASK_ID)
+        assert "task_id" not in EndpointExecutionResponse.model_fields
 
     def test_list_executions_filters(self, httpx_mock, client: RagnerockClient) -> None:
         httpx_mock.add_response(
@@ -560,7 +582,7 @@ class TestMcpTools:
                         "_meta": {"anthropic/maxResultSizeChars": 98304},
                     }
                 ],
-                "warnings": ["a resource is named wait_seconds"],
+                "warnings": ["an input is named wait_seconds"],
             },
         )
 
@@ -573,7 +595,7 @@ class TestMcpTools:
         assert tool.output_schema == {"type": "object", "properties": {}}
         assert tool.annotations == {"readOnlyHint": False}
         assert tool.meta == {"anthropic/maxResultSizeChars": 98304}
-        assert result.warnings == ["a resource is named wait_seconds"]
+        assert result.warnings == ["an input is named wait_seconds"]
         assert result.default_wait_seconds == 55
         assert result.enabled is True
 
@@ -627,7 +649,7 @@ class TestSubmit:
         assert b'name="data"; filename="w2.pdf"' in request.content
         assert b"%PDF-" in request.content
 
-    def test_named_parts_and_values_are_sent_by_resource_name(
+    def test_named_parts_and_values_are_sent_by_input_name(
         self, httpx_mock, client: RagnerockClient, tmp_path: Path
     ) -> None:
         first = tmp_path / "w2.pdf"
@@ -733,7 +755,7 @@ class TestPoll:
                 "metadata": {},
                 "ragnerock_metadata": {
                     "endpoint_id": ENDPOINT_ID,
-                    "workflow_id": WORKFLOW_ID,
+                    "workflow_id": AGENT_ID,
                     "duration_seconds": 1.0,
                     "compute_seconds": 1.0,
                     "input_tokens": 10,
@@ -750,6 +772,8 @@ class TestPoll:
         assert result.metadata == {}
         assert result.ragnerock_metadata is not None
         assert result.ragnerock_metadata["pages_processed"] == 2
+        # Frozen public contract: the agent's id still travels as workflow_id.
+        assert result.ragnerock_metadata["workflow_id"] == AGENT_ID
         assert result.truncated is False
         assert result.error is None
 

@@ -13,6 +13,8 @@ from ragnerock import (
     DocumentStatus,
     FileType,
     NotFoundError,
+    Run,
+    RunKind,
     ValidationError,
 )
 
@@ -28,6 +30,18 @@ class TestGet:
         doc = session.get(Document, id=doc_id)
         assert doc is not None
         assert doc.name == "contract.pdf"
+
+    def test_get_carries_document_folder_id(self, httpx_mock, session, payloads):
+        doc_id = "00000000-0000-0000-0000-000000000101"
+        folder_id = "00000000-0000-0000-0000-000000000201"
+        httpx_mock.add_response(
+            method="GET",
+            url=re.compile(rf".*/api/documents/{doc_id}$"),
+            json=payloads.document(id=doc_id, document_folder_id=folder_id),
+        )
+        doc = session.get(Document, id=doc_id)
+        assert doc is not None
+        assert str(doc.document_folder_id) == folder_id
         assert doc.file_type == FileType.PDF
 
     def test_get_by_name_returns_document(
@@ -219,20 +233,39 @@ class TestContentDownload:
             doc.content()
 
 
-class TestDocumentJob:
-    def test_job_fetches_latest_job(self, httpx_mock, session, payloads, base_url):
+class TestDocumentLatestRun:
+    def test_latest_run_hits_document_run_endpoint(
+        self, httpx_mock, session, payloads, base_url
+    ):
         doc_id = "00000000-0000-0000-0000-000000000101"
         httpx_mock.add_response(
             method="GET",
-            url=f"{base_url}/api/documents/{doc_id}/job",
-            json=payloads.job(document_id=doc_id, phase="embedding"),
+            url=f"{base_url}/api/documents/{doc_id}/run",
+            json=payloads.run(document_id=doc_id, phase="embedding"),
         )
         doc = Document(id=doc_id)
         session._bind(doc)
-        job = doc.job()
-        assert job.phase == "embedding"
-        assert job._is_bound
+        run = doc.latest_run()
+        assert isinstance(run, Run)
+        assert run.phase == "embedding"
+        assert run.kind is RunKind.MANUAL
+        assert run._is_bound
+        (request,) = [
+            r for r in httpx_mock.get_requests() if r.url.path.endswith("/run")
+        ]
+        assert request.method == "GET"
+        assert request.url.path == f"/api/documents/{doc_id}/run"
 
-    def test_job_on_unbound_document_raises(self):
-        with pytest.raises(RuntimeError):
-            Document(id="00000000-0000-0000-0000-000000000101").job()
+    def test_latest_run_on_unbound_document_raises(self):
+        with pytest.raises(RuntimeError, match="cannot fetch run"):
+            Document(id="00000000-0000-0000-0000-000000000101").latest_run()
+
+    def test_latest_run_without_id_raises(self, session):
+        doc = Document()
+        session._bind(doc)
+        with pytest.raises(RuntimeError, match="no id"):
+            doc.latest_run()
+
+    def test_document_has_no_run_or_job_method(self):
+        assert not hasattr(Document, "run")
+        assert not hasattr(Document, "job")

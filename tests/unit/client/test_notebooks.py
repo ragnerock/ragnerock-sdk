@@ -78,31 +78,31 @@ def _ndjson(*events: Any) -> bytes:
 
 
 class TestNotebookCreate:
-    def test_an_agent_id_reaches_the_body(
+    def test_a_task_id_reaches_the_body(
         self, client: RagnerockClient, httpx_mock: HTTPXMock
     ) -> None:
-        agent_id = uuid.uuid4()
+        task_id = uuid.uuid4()
         httpx_mock.add_response(
             method="POST",
             url=url("/api/notebooks/"),
-            json=_notebook(agent_id=str(agent_id)),
+            json=_notebook(task_id=str(task_id)),
         )
 
         created = client.notebooks.create(
-            project_id=uuid.UUID(PROJECT_ID), title="Chat", agent_id=agent_id
+            project_id=uuid.UUID(PROJECT_ID), title="Chat", task_id=task_id
         )
 
         assert last_json(httpx_mock) == {
             "project_id": PROJECT_ID,
             "title": "Chat",
-            "agent_id": str(agent_id),
+            "task_id": str(task_id),
         }
-        assert created.agent_id == agent_id
+        assert created.task_id == task_id
 
     def test_an_unbound_create_sends_no_binding(
         self, client: RagnerockClient, httpx_mock: HTTPXMock
     ) -> None:
-        """The research agent: no ``agent_id`` reaches the server."""
+        """The research assistant: no ``task_id`` reaches the server."""
         httpx_mock.add_response(
             method="POST", url=url("/api/notebooks/"), json=_notebook()
         )
@@ -111,16 +111,16 @@ class TestNotebookCreate:
             project_id=uuid.UUID(PROJECT_ID), title="Scratch"
         )
 
-        assert "agent_id" not in last_json(httpx_mock)
-        assert created.agent_id is None
+        assert "task_id" not in last_json(httpx_mock)
+        assert created.task_id is None
 
 
 class TestOpenConversation:
     def test_it_posts_to_the_resolve_or_create_route(
         self, client: RagnerockClient, httpx_mock: HTTPXMock
     ) -> None:
-        agent_id = uuid.uuid4()
-        payload = _notebook(agent_id=str(agent_id))
+        task_id = uuid.uuid4()
+        payload = _notebook(task_id=str(task_id))
         httpx_mock.add_response(
             method="POST",
             url=url("/api/notebooks/conversations"),
@@ -129,17 +129,17 @@ class TestOpenConversation:
         )
 
         first = client.notebooks.open_conversation(
-            project_id=uuid.UUID(PROJECT_ID), agent_id=agent_id
+            project_id=uuid.UUID(PROJECT_ID), task_id=task_id
         )
         second = client.notebooks.open_conversation(
-            project_id=uuid.UUID(PROJECT_ID), agent_id=agent_id
+            project_id=uuid.UUID(PROJECT_ID), task_id=task_id
         )
 
         assert last_json(httpx_mock) == {
             "project_id": PROJECT_ID,
-            "agent_id": str(agent_id),
+            "task_id": str(task_id),
         }
-        assert first.agent_id == agent_id
+        assert first.task_id == task_id
         assert first.id == second.id
 
 
@@ -161,19 +161,19 @@ class TestNotebookList:
     def test_the_filters_ride_the_query_string(
         self, client: RagnerockClient, httpx_mock: HTTPXMock
     ) -> None:
-        agent_id = uuid.uuid4()
+        task_id = uuid.uuid4()
         item = {"id": str(uuid.uuid4()), "title": "Chat", "created_at": NOW}
         httpx_mock.add_response(
             method="GET",
             url=url(
                 f"/api/notebooks/?skip=5&limit=10&project_ids={PROJECT_ID}"
-                f"&agent_id={agent_id}&mine=true"
+                f"&task_id={task_id}&mine=true"
             ),
             json={"notebooks": [item], "total": 6, "skip": 5, "limit": 10},
         )
 
         listed = client.notebooks.list(
-            project_ids=PROJECT_ID, skip=5, limit=10, agent_id=agent_id, mine=True
+            project_ids=PROJECT_ID, skip=5, limit=10, task_id=task_id, mine=True
         )
 
         assert listed.total == 6
@@ -323,8 +323,8 @@ class TestStreamInput:
     ) -> None:
         notebook_id = uuid.uuid4()
         user_cell = _cell(notebook_id, content="hi")
-        agent_event = {"action": {"response": "Hello"}, "usage": {"input_tokens": 1}}
-        body = _ndjson(user_cell, agent_event) + b"not json\n"
+        model_event = {"action": {"response": "Hello"}, "usage": {"input_tokens": 1}}
+        body = _ndjson(user_cell, model_event) + b"not json\n"
         httpx_mock.add_response(
             method="POST",
             url=url(f"/api/notebooks/{notebook_id}/input"),
@@ -351,7 +351,7 @@ class TestStreamInput:
         }
         assert events == [
             user_cell,
-            agent_event,
+            model_event,
             {"type": "text", "content": "not json"},
         ]
 
@@ -394,27 +394,27 @@ class TestStreamInput:
 
 
 class TestNotebookResponseFields:
-    def test_a_bound_notebook_names_its_agent_and_its_model_source(self) -> None:
-        agent_id = uuid.uuid4()
+    def test_a_bound_notebook_names_its_task_and_its_model_source(self) -> None:
+        task_id = uuid.uuid4()
         parsed = NotebookResponse.model_validate(
             _notebook(
-                agent_id=str(agent_id),
-                agent_name="Supply Chain Analyst",
-                model_source="agent",
+                task_id=str(task_id),
+                task_name="Supply Chain Analyst",
+                model_source="task",
                 visibility="user",
             )
         )
 
-        assert parsed.agent_id == agent_id
-        assert parsed.agent_name == "Supply Chain Analyst"
-        assert parsed.model_source == "agent"
+        assert parsed.task_id == task_id
+        assert parsed.task_name == "Supply Chain Analyst"
+        assert parsed.model_source == "task"
         assert parsed.created_at is not None and parsed.created_at.tzinfo is not None
 
-    def test_an_unbound_notebook_has_no_agent(self) -> None:
+    def test_an_unbound_notebook_has_no_task(self) -> None:
         parsed = NotebookResponse.model_validate(_notebook())
 
-        assert parsed.agent_id is None
-        assert parsed.agent_name is None
+        assert parsed.task_id is None
+        assert parsed.task_name is None
         assert parsed.model_source is None
 
     def test_a_transcript_carries_its_assignment(self) -> None:
@@ -422,13 +422,13 @@ class TestNotebookResponseFields:
         parsed = NotebookResponse.model_validate(
             _notebook(
                 assignment_id=str(assignment_id),
-                visibility="agent_transcript",
+                visibility="task_transcript",
                 assignment={"id": str(assignment_id), "status": "running"},
             )
         )
 
         assert parsed.assignment_id == assignment_id
-        assert parsed.visibility == "agent_transcript"
+        assert parsed.visibility == "task_transcript"
         # Undeclared fields stay reachable.
         assert parsed.model_dump()["assignment"]["status"] == "running"
 
@@ -606,6 +606,14 @@ class TestArtifacts:
         assert artifact.preview is not None
         assert artifact.preview.size_bytes == 512
         assert artifact.data == {"rows": []}
+
+    def test_the_renamed_artifact_types_carry_the_new_values(self) -> None:
+        assert ArtifactType.TASKS.value == "tasks"
+        assert ArtifactType.AGENT_PROPOSAL.value == "agent_proposal"
+        assert ArtifactType.AGENT.value == "agent"
+        assert {"operators", "workflow_proposal", "workflow"}.isdisjoint(
+            member.value for member in ArtifactType
+        )
 
     def test_list_builds_its_query_string(
         self, client: RagnerockClient, httpx_mock: HTTPXMock

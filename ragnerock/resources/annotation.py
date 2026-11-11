@@ -1,4 +1,4 @@
-"""Annotation resource for operator-produced annotations on documents, chunks, or pages."""
+"""Annotation resource for task-produced annotations on documents, chunks, or pages."""
 
 from __future__ import annotations
 
@@ -10,23 +10,23 @@ from ragnerock.resources.base import OptionalDateTime, _Resource
 if TYPE_CHECKING:
     from ragnerock.resources.chunk import Chunk
     from ragnerock.resources.document import Document
-    from ragnerock.resources.operator import Operator
+    from ragnerock.resources.task import Task
     from ragnerock.resources.page import Page
 
 
 class Annotation(_Resource):
-    """An annotation produced by an operator, attached to a document, chunk, or page.
+    """An annotation produced by a task, attached to a document, chunk, or page.
 
     Exactly one target id (``document_id``, ``chunk_id``, ``page_id``, or for
     tabular sources ``row_id`` / ``sheet_id``) is typically set, depending on
-    the operator's ``chunk_type``. The server-assigned
+    the task's ``chunk_type``. The server-assigned
     identity is carried on ``root_id``; the :attr:`id` property exposes it
     under the same name used by every other resource.
     """
 
     root_id: UUID | None = None
-    operator_id: UUID | None = None
-    operator_name: str | None = None
+    task_id: UUID | None = None
+    task_name: str | None = None
     schema_id: UUID | None = None
     document_id: UUID | None = None
     chunk_id: UUID | None = None
@@ -125,18 +125,18 @@ class Annotation(_Resource):
         return self._require_session("its page").get(Page, id=self.page_id)
 
     @property
-    def operator(self) -> Operator | None:
-        """The operator that produced this annotation, fetched on access.
+    def task(self) -> Task | None:
+        """The task that produced this annotation, fetched on access.
 
         Returns:
-            Operator | None: The operator, or ``None`` if ``operator_id`` is
-            unset or the operator no longer exists.
+            Task | None: The task, or ``None`` if ``task_id`` is
+            unset or the task no longer exists.
 
         Raises:
             RuntimeError: If the annotation is not bound to a session.
         """
-        from ragnerock.resources.operator import Operator
+        from ragnerock.resources.task import Task
 
-        if self.operator_id is None:
+        if self.task_id is None:
             return None
-        return self._require_session("its operator").get(Operator, id=self.operator_id)
+        return self._require_session("its task").get(Task, id=self.task_id)

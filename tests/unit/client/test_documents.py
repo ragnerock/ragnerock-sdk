@@ -1,4 +1,4 @@
-"""Tests for the document section: listing filters, metadata, and ingest changes."""
+"""Tests for the document section: listing, folders, metadata, runs, ingest changes."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from tests.unit.client.conftest import (
 
 DOC_ID = uuid.UUID("00000000-0000-4000-8000-000000000101")
 DOC_2 = uuid.UUID("00000000-0000-4000-8000-000000000102")
-GROUP_ID = uuid.UUID("00000000-0000-4000-8000-000000000201")
+DOCUMENT_FOLDER_ID = uuid.UUID("00000000-0000-4000-8000-000000000201")
 CONFIG_ID = "00000000-0000-4000-8000-000000000301"
 RUN_ID = "00000000-0000-4000-8000-000000000401"
 SOURCE_ID = "00000000-0000-4000-8000-000000000501"
@@ -41,7 +41,7 @@ def _document(doc_id: uuid.UUID = DOC_ID, **overrides: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "id": str(doc_id),
         "project_id": PROJECT_ID,
-        "group_id": str(GROUP_ID),
+        "document_folder_id": str(DOCUMENT_FOLDER_ID),
         "created_by_id": None,
         "name": "report.pdf",
         "storage_path": "projects/demo/report.pdf",
@@ -95,7 +95,7 @@ class TestList:
         client.documents.list(
             project_ids=PROJECT_ID,
             limit=25,
-            group_id=GROUP_ID,
+            document_folder_id=DOCUMENT_FOLDER_ID,
             name="acme",
             filters=[
                 {
@@ -113,7 +113,7 @@ class TestList:
         params = last_params(httpx_mock)
         assert last_request(httpx_mock).url.path == "/api/documents/"
         assert params["project_ids"] == PROJECT_ID
-        assert params["group_id"] == str(GROUP_ID)
+        assert params["document_folder_id"] == str(DOCUMENT_FOLDER_ID)
         assert params["limit"] == "25"
         assert params["name"] == "acme"
         assert json.loads(params["filters"]) == [
@@ -122,7 +122,7 @@ class TestList:
         assert params["timezone"] == "Europe/Paris"
         assert params["sort_by"] == "created_at"
         assert params["sort_order"] == "desc"
-        assert "ungrouped" not in params
+        assert "unfiled" not in params
         assert "is_sample" not in params
 
     def test_plain_string_sort_values_are_accepted(
@@ -151,15 +151,15 @@ class TestList:
             "pending",
         ]
 
-    def test_ungrouped_and_is_sample(
+    def test_unfiled_and_is_sample(
         self, client: RagnerockClient, httpx_mock: Any
     ) -> None:
         httpx_mock.add_response(method="GET", url=_DOCS_URL, json=_EMPTY_PAGE)
 
-        client.documents.list(ungrouped=True, is_sample=False)
+        client.documents.list(unfiled=True, is_sample=False)
 
         params = last_params(httpx_mock)
-        assert params["ungrouped"] == "true"
+        assert params["unfiled"] == "true"
         assert params["is_sample"] == "false"
 
     def test_parses_document_fields(
@@ -174,27 +174,28 @@ class TestList:
         doc = client.documents.list().documents[0]
 
         assert doc.id == DOC_ID
-        assert doc.group_id == GROUP_ID
+        assert doc.document_folder_id == DOCUMENT_FOLDER_ID
         assert doc.file_type == 3
         assert doc.status == "ready"
         assert doc.filesize == 1024
         assert doc.created_at == datetime(2026, 1, 1, tzinfo=UTC)
 
 
-class TestListByGroup:
-    def test_sends_filters_to_the_group_route(
+class TestListByDocumentFolder:
+    def test_sends_filters_to_the_folder_route(
         self, client: RagnerockClient, httpx_mock: Any
     ) -> None:
         httpx_mock.add_response(
             method="GET",
             url=re.compile(
-                re.escape(url(f"/api/documents/group/{GROUP_ID}")) + r"\?.*"
+                re.escape(url(f"/api/documents/document-folder/{DOCUMENT_FOLDER_ID}"))
+                + r"\?.*"
             ),
             json=_EMPTY_PAGE,
         )
 
-        client.documents.list_by_group(
-            GROUP_ID,
+        client.documents.list_by_document_folder(
+            DOCUMENT_FOLDER_ID,
             skip=50,
             filters=[{"field": "name", "operator": "contains", "value": "10-K"}],
             is_sample=True,
@@ -202,7 +203,10 @@ class TestListByGroup:
         )
 
         params = last_params(httpx_mock)
-        assert last_request(httpx_mock).url.path == f"/api/documents/group/{GROUP_ID}"
+        assert (
+            last_request(httpx_mock).url.path
+            == f"/api/documents/document-folder/{DOCUMENT_FOLDER_ID}"
+        )
         assert params["skip"] == "50"
         assert json.loads(params["filters"])[0]["value"] == "10-K"
         assert params["is_sample"] == "true"
@@ -210,19 +214,53 @@ class TestListByGroup:
         assert params["sort_by"] == "id"
         # Scope parameters belong to the project-wide listing only.
         assert "project_ids" not in params
-        assert "group_id" not in params
+        assert "document_folder_id" not in params
 
     def test_defaults(self, client: RagnerockClient, httpx_mock: Any) -> None:
         httpx_mock.add_response(
             method="GET",
             url=url(
-                f"/api/documents/group/{GROUP_ID}"
+                f"/api/documents/document-folder/{DOCUMENT_FOLDER_ID}"
                 "?skip=0&limit=100&sort_by=id&sort_order=asc"
             ),
             json=_EMPTY_PAGE,
         )
 
-        assert client.documents.list_by_group(GROUP_ID).total == 0
+        assert client.documents.list_by_document_folder(DOCUMENT_FOLDER_ID).total == 0
+
+
+class TestFiling:
+    def test_create_files_the_document_in_a_folder(
+        self, client: RagnerockClient, httpx_mock: Any
+    ) -> None:
+        httpx_mock.add_response(
+            method="POST", url=url("/api/documents/"), json=_document()
+        )
+
+        created = client.documents.create(
+            project_id=uuid.UUID(PROJECT_ID),
+            source_url="https://example.com/report.pdf",
+            document_folder_id=DOCUMENT_FOLDER_ID,
+        )
+
+        content = last_request(httpx_mock).content
+        assert (
+            b'name="document_folder_id"\r\n\r\n' + str(DOCUMENT_FOLDER_ID).encode()
+            in content
+        )
+        assert b'name="group_id"' not in content
+        assert created.document_folder_id == DOCUMENT_FOLDER_ID
+
+    def test_update_moves_the_document_to_a_folder(
+        self, client: RagnerockClient, httpx_mock: Any
+    ) -> None:
+        httpx_mock.add_response(
+            method="PUT", url=url(f"/api/documents/{DOC_ID}"), json=_document()
+        )
+
+        client.documents.update(DOC_ID, document_folder_id=DOCUMENT_FOLDER_ID)
+
+        assert last_json(httpx_mock) == {"document_folder_id": str(DOCUMENT_FOLDER_ID)}
 
 
 class TestMetadata:
@@ -332,24 +370,25 @@ class TestIngestChanges:
         assert httpx_mock.get_requests() == []
 
 
-class TestGetJob:
-    def test_parses_job_fields(self, client: RagnerockClient, httpx_mock: Any) -> None:
+class TestGetRun:
+    def test_parses_run_fields(self, client: RagnerockClient, httpx_mock: Any) -> None:
         httpx_mock.add_response(
             method="GET",
-            url=url(f"/api/documents/{DOC_ID}/job"),
+            url=url(f"/api/documents/{DOC_ID}/run"),
             json={
                 "id": "00000000-0000-4000-8000-000000000801",
                 "document_id": str(DOC_ID),
                 "status": 2,
                 "status_message": None,
-                "job_type": 1,
+                "kind": 1,
                 "phase": "parsing",
                 "end_time": "",
             },
         )
 
-        job = client.documents.get_job(DOC_ID)
+        run = client.documents.get_run(DOC_ID)
 
-        assert job.document_id == DOC_ID
-        assert job.phase == "parsing"
-        assert job.end_time is None
+        assert run.document_id == DOC_ID
+        assert run.kind == 1
+        assert run.phase == "parsing"
+        assert run.end_time is None
