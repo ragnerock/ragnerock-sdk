@@ -1,4 +1,4 @@
-"""Job endpoints (``/api/jobs/...``)."""
+"""Run endpoints (``/api/runs/...``)."""
 
 from __future__ import annotations
 
@@ -16,12 +16,21 @@ if TYPE_CHECKING:
     from ragnerock.client._client import RagnerockClient
 
 
-class JobResponse(_ApiModel):
-    """Response payload representing a single job.
+class RunResponse(_ApiModel):
+    """Response payload representing a single run.
 
-    ``status`` is an integer :class:`~ragnerock.resources.job.JobStatus`
+    ``status`` is an integer :class:`~ragnerock.resources.run.RunStatus`
     value. Project listings add ``document_name`` and ``created_at``; fetching
-    a job by id adds its stage list, subtasks, and run details.
+    a run by id adds its stage list, subtasks, and provenance.
+
+    Attributes:
+        kind (int | None): An integer
+            :class:`~ragnerock.resources.run.RunKind` value: ``1``
+            (automatic) or ``2`` (manual).
+        agent_ids (list[UUID]): The agents the run belongs to.
+        provenance (dict[str, Any] | None): What the run pinned: its input
+            versions and derived status. ``None`` for runs from before
+            provenances were recorded.
     """
 
     id: UUID
@@ -29,49 +38,50 @@ class JobResponse(_ApiModel):
     document_id: UUID | None = None
     document_name: str | None = None
     status_message: str | None = None
-    job_type: int | None = None
+    kind: int | None = None
     phase: str | None = None
     current_stage_name: str | None = None
     current_stage_index: int | None = None
     total_stages: int | None = None
-    workflow_ids: list[UUID] = []
+    agent_ids: list[UUID] = []
     capture_execution_log: bool | None = None
     execution_trace: dict[str, Any] | None = None
-    run: dict[str, Any] | None = None
+    provenance: dict[str, Any] | None = None
     created_at: UtcDatetime = None
     start_time: UtcDatetime = None
     end_time: UtcDatetime = None
     archived_at: UtcDatetime = None
 
 
-class JobListResponse(_ApiModel):
-    """Paginated list response for jobs."""
+class RunListResponse(_ApiModel):
+    """Paginated list response for runs."""
 
-    jobs: list[JobResponse]
+    runs: list[RunResponse]
     total: int
     skip: int
     limit: int
 
 
-class JobActionResponse(_ApiModel):
-    """Response payload for a job lifecycle action (cancel, retry)."""
+class RunActionResponse(_ApiModel):
+    """Response payload for a run lifecycle action (cancel, retry)."""
 
-    job_id: UUID
-    status: str
+    run_id: UUID
+    status: str | None = None
 
 
-class CreateManualJobsResponse(_ApiModel):
-    """Response payload returned when creating one or more manual jobs.
+class CreateManualRunsResponse(_ApiModel):
+    """Response payload returned when creating one or more manual runs.
 
-    ``job_ids`` and ``run_ids`` are ordered to match the request.
+    ``run_ids`` and ``provenance_ids`` are ordered to match the request:
+    ``provenance_ids[i]`` records what ``run_ids[i]`` pinned.
     """
 
-    job_ids: list[UUID]
-    run_ids: list[UUID] = []
+    run_ids: list[UUID]
+    provenance_ids: list[UUID] = []
 
 
-class SinkDeliveryInfo(_ApiModel):
-    """What one workflow output delivered for one result in a run.
+class OutputDeliveryInfo(_ApiModel):
+    """What one agent output delivered for one result in a run.
 
     ``status`` is one of ``"pending"``, ``"running"``, ``"succeeded"``,
     ``"skipped"``, ``"suppressed"``, or ``"failed"``; ``reason`` and
@@ -79,7 +89,7 @@ class SinkDeliveryInfo(_ApiModel):
     """
 
     id: UUID
-    sink_id: UUID | None = None
+    output_id: UUID | None = None
     kind: str | None = None
     status: str | None = None
     reason: str | None = None
@@ -92,30 +102,30 @@ class SinkDeliveryInfo(_ApiModel):
     completed_at: UtcDatetime = None
 
 
-class SinkDeliveryGroup(_ApiModel):
-    """One workflow output's deliveries in a run.
+class OutputDeliveryGroup(_ApiModel):
+    """One agent output's deliveries in a run.
 
     ``deliveries`` holds the most recent deliveries, newest first;
     ``truncated`` says whether it stops short of all of them, and
     ``status_counts`` counts every delivery by status.
     """
 
-    sink_id: UUID
-    sink_name: str | None = None
+    output_id: UUID
+    output_name: str | None = None
     kind: str | None = None
     status_counts: dict[str, int] = {}
     notifications_sent: int = 0
-    deliveries: list[SinkDeliveryInfo] = []
+    deliveries: list[OutputDeliveryInfo] = []
     truncated: bool = False
 
 
-class JobSinkDeliveriesResponse(_ApiModel):
-    """A run's workflow outputs and what each delivered."""
+class RunOutputDeliveriesResponse(_ApiModel):
+    """A run's agent outputs and what each delivered."""
 
-    groups: list[SinkDeliveryGroup] = []
+    groups: list[OutputDeliveryGroup] = []
 
 
-class SinkDeliveryRetryResponse(_ApiModel):
+class OutputDeliveryRetryResponse(_ApiModel):
     """How many of an output's deliveries in a run were queued again."""
 
     retried: int = 0
@@ -194,8 +204,8 @@ def _document_name_index(
     return name_to_id
 
 
-class _JobsSection(_Section):
-    """Job lifecycle endpoints."""
+class _RunsSection(_Section):
+    """Run creation, inspection, and lifecycle endpoints."""
 
     def list(
         self,
@@ -204,24 +214,24 @@ class _JobsSection(_Section):
         status_filter: str | None = None,
         skip: int = 0,
         limit: int = 50,
-    ) -> JobListResponse:
-        """List jobs in a project, optionally filtered by status.
+    ) -> RunListResponse:
+        """List runs in a project, optionally filtered by status.
 
-        Calls ``GET /api/jobs/``.
+        Calls ``GET /api/runs/``.
 
         Args:
             project_id (UUID): Project to list.
             status_filter (str | None): Comma-separated string of integer
-                :class:`JobStatus` values, or ``None`` to list every status.
+                :class:`RunStatus` values, or ``None`` to list every status.
             skip (int): Offset into the result set.
             limit (int): Maximum number of results per page.
 
         Returns:
-            JobListResponse: A page of jobs.
+            RunListResponse: A page of runs.
         """
         response = self._parent._request(
             "GET",
-            "/api/jobs/",
+            "/api/runs/",
             params={
                 "project_id": str(project_id),
                 "status_filter": status_filter,
@@ -229,78 +239,79 @@ class _JobsSection(_Section):
                 "limit": limit,
             },
         )
-        return JobListResponse.model_validate(response.json())
+        return RunListResponse.model_validate(response.json())
 
-    def get(self, job_id: UUID) -> JobResponse:
-        """Fetch a single job by id.
+    def get(self, run_id: UUID) -> RunResponse:
+        """Fetch a single run by id.
 
-        Calls ``GET /api/jobs/{job_id}``.
+        Calls ``GET /api/runs/{run_id}``.
 
         Args:
-            job_id (UUID): UUID of the job.
+            run_id (UUID): UUID of the run.
 
         Returns:
-            JobResponse: The job response.
+            RunResponse: The run response.
 
         Raises:
-            NotFoundError: If no job has that id.
+            NotFoundError: If no run has that id.
         """
-        response = self._parent._request("GET", f"/api/jobs/{job_id}")
-        return JobResponse.model_validate(response.json())
+        response = self._parent._request("GET", f"/api/runs/{run_id}")
+        return RunResponse.model_validate(response.json())
 
-    def create_manual(
+    def create(
         self,
         *,
         document_ids: list[UUID] | None = None,
-        workflow_ids: list[UUID] | None = None,
+        agent_ids: list[UUID] | None = None,
         capture_execution_log: bool = False,
         recreate_memory_document_ids: list[UUID] | None = None,
-        workflow_id: UUID | None = None,
+        agent_id: UUID | None = None,
         runs: list[dict[str, Any]] | None = None,
         group_id: UUID | None = None,
         force_refresh: bool = False,
         force_refresh_node_ids: list[UUID] | None = None,
-    ) -> CreateManualJobsResponse:
-        """Create manual runs, each with its own job.
+    ) -> CreateManualRunsResponse:
+        """Create manual runs, each with its own provenance.
 
-        Calls ``POST /api/jobs/``. Works in one of two modes, which cannot be
+        Calls ``POST /api/runs/``. Works in one of two modes, which cannot be
         mixed:
 
-        - **Fan-out**: ``document_ids`` + ``workflow_ids`` creates one job per
-          document, linked to every listed workflow.
-        - **Explicit**: ``workflow_id`` + ``runs`` creates one run per spec.
+        - **Fan-out**: ``document_ids`` + ``agent_ids`` creates one run per
+          document, linked to every listed agent.
+        - **Explicit**: ``agent_id`` + ``runs`` creates one run per spec.
           Each spec is ``{"inputs": {...}, "client_key": ...}``: ``inputs``
-          maps each workflow resource name to a document id (file resources)
-          or an inline value (value resources), and the optional
-          ``client_key`` makes a retried request return the runs it already
-          created instead of duplicating them (unique within ``group_id``).
-          Resources left out of ``inputs`` that allow it are run empty.
+          maps each agent input name to a document id (file inputs) or an
+          inline value (value inputs), and the optional ``client_key`` makes
+          a retried request return the runs it already created instead of
+          duplicating them (unique within ``group_id``). Inputs left out of
+          ``inputs`` that allow it are run empty.
 
         Args:
             document_ids (list[UUID] | None): Documents to run against
                 (fan-out mode).
-            workflow_ids (list[UUID] | None): Workflows to run (fan-out mode).
+            agent_ids (list[UUID] | None): Agents to run (fan-out mode).
             capture_execution_log (bool): If ``True``, the server records a
-                per-node execution trace on each resulting job. More
+                per-node execution trace on each resulting run. More
                 expensive; useful for debugging.
             recreate_memory_document_ids (list[UUID] | None): Documents whose
-                jobs also rebuild their memories, wiping the existing ones
+                runs also rebuild their memories, wiping the existing ones
                 first (fan-out mode). ``None`` applies the server default:
                 rebuild only when automatic memory is on and the document has
                 none yet.
-            workflow_id (UUID | None): The workflow to run (explicit mode).
+            agent_id (UUID | None): The agent to run (explicit mode).
             runs (list[dict[str, Any]] | None): One spec per run (explicit
                 mode).
-            group_id (UUID | None): Ties several requests together, e.g. the
-                chunks of one manifest; see :meth:`create_runs_from_manifest`.
+            group_id (UUID | None): A batch key tying several requests
+                together, e.g. the chunks of one manifest; see
+                :meth:`create_from_manifest`. Not a document folder.
             force_refresh (bool): Recompute every node instead of reusing
                 earlier results.
             force_refresh_node_ids (list[UUID] | None): Recompute only these
-                workflow nodes.
+                agent nodes.
 
         Returns:
-            CreateManualJobsResponse: The created job and run ids, ordered to
-            match the request.
+            CreateManualRunsResponse: The created run and provenance ids,
+            ordered to match the request.
 
         Raises:
             RagnerockError: If the server rejects the request, e.g. because
@@ -308,8 +319,8 @@ class _JobsSection(_Section):
         """
         body = _body(
             document_ids=document_ids,
-            workflow_ids=workflow_ids,
-            workflow_id=workflow_id,
+            agent_ids=agent_ids,
+            agent_id=agent_id,
             runs=runs,
             group_id=group_id,
             force_refresh=force_refresh,
@@ -317,62 +328,62 @@ class _JobsSection(_Section):
             capture_execution_log=capture_execution_log,
             recreate_memory_document_ids=recreate_memory_document_ids,
         )
-        response = self._parent._request("POST", "/api/jobs/", json_body=body)
-        return CreateManualJobsResponse.model_validate(response.json())
+        response = self._parent._request("POST", "/api/runs/", json_body=body)
+        return CreateManualRunsResponse.model_validate(response.json())
 
     def run_all_ingest(
         self,
         *,
-        workflow_id: UUID,
-        resource_id: UUID,
+        agent_id: UUID,
+        input_id: UUID,
         capture_execution_log: bool = False,
-    ) -> CreateManualJobsResponse:
-        """Run a workflow over every current entry of its ingest source.
+    ) -> CreateManualRunsResponse:
+        """Run an agent over every current entry of its ingest source.
 
-        Calls ``POST /api/jobs/ingest-run-all``. Creates one manual run per
-        live entry of the ingest source bound to ``resource_id``, each pinned
+        Calls ``POST /api/runs/ingest-run-all``. Creates one manual run per
+        live entry of the ingest source bound to ``input_id``, each pinned
         to the source's latest completed ingest run. Use it to reprocess a
         whole source on purpose, e.g. after changing a prompt; runs the source
         starts by itself only cover what changed.
 
         Args:
-            workflow_id (UUID): The workflow to run.
-            resource_id (UUID): The workflow's ingest resource.
+            agent_id (UUID): The agent to run.
+            input_id (UUID): The agent's ingest input.
             capture_execution_log (bool): Record a per-node execution trace.
 
         Returns:
-            CreateManualJobsResponse: The created job and run ids.
+            CreateManualRunsResponse: The created run and provenance ids.
 
         Raises:
             RagnerockError: If the source has no completed run yet, or has
                 more entries than one request may run.
         """
         body = _body(
-            workflow_id=workflow_id,
-            resource_id=resource_id,
+            agent_id=agent_id,
+            input_id=input_id,
             capture_execution_log=capture_execution_log,
         )
         response = self._parent._request(
-            "POST", "/api/jobs/ingest-run-all", json_body=body
+            "POST", "/api/runs/ingest-run-all", json_body=body
         )
-        return CreateManualJobsResponse.model_validate(response.json())
+        return CreateManualRunsResponse.model_validate(response.json())
 
-    def create_runs_from_manifest(
+    def create_from_manifest(
         self,
         *,
-        workflow_id: UUID,
+        agent_id: UUID,
         manifest: str | Path | Iterable[dict[str, Any]],
         chunk_size: int = 200,
         capture_execution_log: bool = False,
-    ) -> CreateManualJobsResponse:
-        """Create many runs of one workflow from a manifest.
+    ) -> CreateManualRunsResponse:
+        """Create many runs of one agent from a manifest.
 
-        Calls ``POST /api/jobs/`` in explicit mode once per chunk of
-        ``chunk_size`` rows, after reading the workflow's resources with
-        ``GET /api/workflows/{workflow_id}``. Every row is
-        ``{"inputs": {...}}``, as in a :meth:`create_manual` run spec. A file
-        resource may be bound by document id or by exact document name; names
-        are resolved within the workflow's project (listing its documents
+        Calls ``POST /api/runs/`` in explicit mode once per chunk of
+        ``chunk_size`` rows, after reading the agent's inputs with
+        ``GET /api/agents/{agent_id}``. Every row is
+        ``{"inputs": {...}}``, as in a :meth:`create` run spec. A file
+        input may be bound by document id or by exact document name; names
+        are resolved within the agent's project (listing its documents
         once, only if needed), and a name shared by several documents must be
         given as an id.
 
@@ -382,7 +393,7 @@ class _JobsSection(_Section):
         chunks remain.
 
         Args:
-            workflow_id (UUID): The workflow every run targets.
+            agent_id (UUID): The agent every run targets.
             manifest (str | Path | Iterable[dict[str, Any]]): A path to a
                 JSONL file (one row per line) or a JSON-array file, or the
                 rows themselves.
@@ -391,7 +402,7 @@ class _JobsSection(_Section):
             capture_execution_log (bool): Record a per-node execution trace.
 
         Returns:
-            CreateManualJobsResponse: Every created job and run id, in
+            CreateManualRunsResponse: Every created run and provenance id, in
             manifest order.
 
         Raises:
@@ -404,13 +415,8 @@ class _JobsSection(_Section):
             raise ValueError("chunk_size must be at least 1")
         rows = _load_manifest_rows(manifest)
 
-        workflow = self._parent.workflows.get(workflow_id)
-        resources = workflow.model_dump(mode="json").get("resources") or []
-        file_names = {
-            r.get("name")
-            for r in resources
-            if isinstance(r, dict) and r.get("type") == "file"
-        }
+        agent = self._parent.agents.get(agent_id)
+        file_names = {i.name for i in agent.inputs if i.type == "file"}
         name_to_id: dict[str, UUID] | None = None
 
         specs: list[dict[str, Any]] = []
@@ -424,7 +430,7 @@ class _JobsSection(_Section):
                 ):
                     if name_to_id is None:
                         name_to_id = _document_name_index(
-                            self._parent, workflow.project_id
+                            self._parent, agent.project_id
                         )
                     if value not in name_to_id:
                         raise ValueError(
@@ -434,81 +440,98 @@ class _JobsSection(_Section):
             specs.append({"inputs": inputs, "client_key": f"row-{i}"})
 
         group_id = uuid.uuid4()
-        job_ids: list[UUID] = []
         run_ids: list[UUID] = []
+        provenance_ids: list[UUID] = []
         for start in range(0, len(specs), chunk_size):
-            result = self.create_manual(
-                workflow_id=workflow_id,
+            result = self.create(
+                agent_id=agent_id,
                 runs=specs[start : start + chunk_size],
                 group_id=group_id,
                 capture_execution_log=capture_execution_log,
             )
-            job_ids.extend(result.job_ids)
             run_ids.extend(result.run_ids)
-        return CreateManualJobsResponse(job_ids=job_ids, run_ids=run_ids)
+            provenance_ids.extend(result.provenance_ids)
+        return CreateManualRunsResponse(run_ids=run_ids, provenance_ids=provenance_ids)
 
-    def cancel(self, job_id: UUID) -> JobActionResponse:
-        """Cancel a running job.
+    def cancel(self, run_id: UUID) -> RunActionResponse:
+        """Cancel a run in progress.
 
-        Calls ``POST /api/jobs/{job_id}/cancel``. Already-terminal jobs are
+        Calls ``POST /api/runs/{run_id}/cancel``. Already-terminal runs are
         a no-op server-side.
 
         Args:
-            job_id (UUID): Job to cancel.
+            run_id (UUID): Run to cancel.
 
         Returns:
-            JobActionResponse: The action response with the resulting status.
+            RunActionResponse: The action response with the resulting status.
         """
-        response = self._parent._request("POST", f"/api/jobs/{job_id}/cancel")
-        return JobActionResponse.model_validate(response.json())
+        response = self._parent._request("POST", f"/api/runs/{run_id}/cancel")
+        return RunActionResponse.model_validate(response.json())
 
-    def retry(self, job_id: UUID) -> JobActionResponse:
-        """Retry a failed job.
+    def retry(self, run_id: UUID) -> RunActionResponse:
+        """Retry a failed run in place.
 
-        Calls ``POST /api/jobs/{job_id}/retry``. The server resets execution
-        state and re-queues the job.
+        Calls ``POST /api/runs/{run_id}/retry``. The server resets execution
+        state and re-queues the run. To run a succeeded run again as a new
+        run, use :meth:`rerun`.
 
         Args:
-            job_id (UUID): Job to retry.
+            run_id (UUID): Run to retry.
 
         Returns:
-            JobActionResponse: The action response with the resulting status.
+            RunActionResponse: The action response with the resulting status.
         """
-        response = self._parent._request("POST", f"/api/jobs/{job_id}/retry")
-        return JobActionResponse.model_validate(response.json())
+        response = self._parent._request("POST", f"/api/runs/{run_id}/retry")
+        return RunActionResponse.model_validate(response.json())
 
-    def sink_deliveries(self, job_id: UUID) -> JobSinkDeliveriesResponse:
-        """List a run's workflow outputs and what each delivered.
+    def rerun(self, run_id: UUID) -> CreateManualRunsResponse:
+        """Re-run a succeeded run as a new run.
 
-        Calls ``GET /api/jobs/{job_id}/sink-deliveries``.
+        Calls ``POST /api/runs/{run_id}/rerun``. The new run covers the same
+        document and agents (or, for an agent with explicit inputs, the same
+        inputs). The original run and its results are left as they are.
 
         Args:
-            job_id (UUID): The job.
+            run_id (UUID): The succeeded run to re-run.
 
         Returns:
-            JobSinkDeliveriesResponse: One group per output, with counts by
+            CreateManualRunsResponse: The new run's id and its provenance's.
+        """
+        response = self._parent._request("POST", f"/api/runs/{run_id}/rerun")
+        return CreateManualRunsResponse.model_validate(response.json())
+
+    def output_deliveries(self, run_id: UUID) -> RunOutputDeliveriesResponse:
+        """List a run's agent outputs and what each delivered.
+
+        Calls ``GET /api/runs/{run_id}/output-deliveries``.
+
+        Args:
+            run_id (UUID): The run.
+
+        Returns:
+            RunOutputDeliveriesResponse: One group per output, with counts by
             status and the most recent deliveries.
         """
-        response = self._parent._request("GET", f"/api/jobs/{job_id}/sink-deliveries")
-        return JobSinkDeliveriesResponse.model_validate(response.json())
+        response = self._parent._request("GET", f"/api/runs/{run_id}/output-deliveries")
+        return RunOutputDeliveriesResponse.model_validate(response.json())
 
-    def retry_sink_deliveries(
-        self, job_id: UUID, *, sink_id: UUID
-    ) -> SinkDeliveryRetryResponse:
+    def retry_output_deliveries(
+        self, run_id: UUID, *, output_id: UUID
+    ) -> OutputDeliveryRetryResponse:
         """Retry an output's failed or held-back deliveries in a run.
 
-        Calls ``POST /api/jobs/{job_id}/sink-deliveries/retry``.
+        Calls ``POST /api/runs/{run_id}/output-deliveries/retry``.
 
         Args:
-            job_id (UUID): The job.
-            sink_id (UUID): The workflow output whose deliveries to retry.
+            run_id (UUID): The run.
+            output_id (UUID): The agent output whose deliveries to retry.
 
         Returns:
-            SinkDeliveryRetryResponse: How many deliveries were queued again.
+            OutputDeliveryRetryResponse: How many deliveries were queued again.
         """
         response = self._parent._request(
             "POST",
-            f"/api/jobs/{job_id}/sink-deliveries/retry",
-            json_body=_body(sink_id=sink_id),
+            f"/api/runs/{run_id}/output-deliveries/retry",
+            json_body=_body(output_id=output_id),
         )
-        return SinkDeliveryRetryResponse.model_validate(response.json())
+        return OutputDeliveryRetryResponse.model_validate(response.json())

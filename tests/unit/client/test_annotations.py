@@ -19,7 +19,7 @@ from tests.unit.client.conftest import (
 )
 
 ROOT_ID = uuid.UUID("00000000-0000-4000-8000-000000000501")
-OPERATOR_ID = uuid.UUID("00000000-0000-4000-8000-000000000601")
+TASK_ID = uuid.UUID("00000000-0000-4000-8000-000000000601")
 SCHEMA_ID = uuid.UUID("00000000-0000-4000-8000-000000000701")
 DOC_ID = uuid.UUID("00000000-0000-4000-8000-000000000101")
 CHUNK_ID = uuid.UUID("00000000-0000-4000-8000-000000000301")
@@ -30,7 +30,7 @@ def _annotation(root_id: uuid.UUID = ROOT_ID, **overrides: Any) -> dict[str, Any
     payload: dict[str, Any] = {
         "data": {"topic": "finance"},
         "root_id": str(root_id),
-        "operator_id": str(OPERATOR_ID),
+        "task_id": str(TASK_ID),
         "schema_id": str(SCHEMA_ID),
         "document_id": str(DOC_ID),
         "chunk_id": None,
@@ -94,7 +94,7 @@ class TestCreate:
         )
 
         result = client.annotations.create(
-            operator_id=OPERATOR_ID,
+            task_id=TASK_ID,
             data={"topic": "finance"},
             document_id=DOC_ID,
             confidence_score=0.75,
@@ -103,7 +103,7 @@ class TestCreate:
 
         assert last_request(httpx_mock).method == "POST"
         assert last_json(httpx_mock) == {
-            "operator_id": str(OPERATOR_ID),
+            "task_id": str(TASK_ID),
             "data": {"topic": "finance"},
             "document_id": str(DOC_ID),
             "confidence_score": 0.75,
@@ -122,7 +122,7 @@ class TestCreate:
         )
 
         result = client.annotations.create(
-            operator_id=OPERATOR_ID, data={}, document_id=DOC_ID, row_id=ROW_ID
+            task_id=TASK_ID, data={}, document_id=DOC_ID, row_id=ROW_ID
         )
 
         body = last_json(httpx_mock)
@@ -143,9 +143,7 @@ class TestCreate:
         )
 
         with pytest.raises(ValidationError, match="Data does not match schema"):
-            client.annotations.create(
-                operator_id=OPERATOR_ID, data={}, chunk_id=CHUNK_ID
-            )
+            client.annotations.create(task_id=TASK_ID, data={}, chunk_id=CHUNK_ID)
 
 
 class TestUpdate:
@@ -291,7 +289,7 @@ class TestCorrectionsRecipe:
                 page = client.annotations.list_revisions(ann.root_id, skip=len(revs))
                 revs.extend(page.revisions)
                 total = page.total
-            original = next((r for r in reversed(revs) if r.source == "operator"), None)
+            original = next((r for r in reversed(revs) if r.source == "task"), None)
             if original is None or revs[0].data == original.data:
                 continue
             pairs.append((original.data, revs[0].data))
@@ -325,9 +323,7 @@ class TestCorrectionsRecipe:
         httpx_mock.add_response(
             method="GET",
             url=url(f"/api/annotations/{ROOT_ID}/revisions?skip=2&limit=50"),
-            json=_page(
-                "revisions", [_revision(1, "operator", original)], total=3, skip=2
-            ),
+            json=_page("revisions", [_revision(1, "task", original)], total=3, skip=2),
         )
 
         assert self._run_recipe(client) == [(original, corrected)]
@@ -413,7 +409,7 @@ class TestListHydratedBySchema:
         }
 
 
-class TestOperatorScopedListings:
+class TestTaskScopedListings:
     def test_documents_with_annotations(
         self, client: RagnerockClient, httpx_mock: Any
     ) -> None:
@@ -421,17 +417,15 @@ class TestOperatorScopedListings:
             "id": str(DOC_ID),
             "project_id": PROJECT_ID,
             "name": "report.pdf",
-            "group_id": None,
+            "document_folder_id": None,
         }
         httpx_mock.add_response(
             method="GET",
-            url=url(
-                f"/api/annotations/operator/{OPERATOR_ID}/documents?skip=0&limit=100"
-            ),
+            url=url(f"/api/annotations/task/{TASK_ID}/documents?skip=0&limit=100"),
             json=_page("documents", [{"document": document, "annotation_count": 4}]),
         )
 
-        result = client.annotations.list_documents_with_schema_annotations(OPERATOR_ID)
+        result = client.annotations.list_documents_with_schema_annotations(TASK_ID)
 
         item = result.documents[0]
         assert item.document.id == DOC_ID
@@ -443,12 +437,12 @@ class TestOperatorScopedListings:
     ) -> None:
         httpx_mock.add_response(
             method="GET",
-            url=url(f"/api/annotations/operator/{OPERATOR_ID}/chunks?skip=10&limit=5"),
+            url=url(f"/api/annotations/task/{TASK_ID}/chunks?skip=10&limit=5"),
             json=_page("annotations", [_annotation(chunk_id=str(CHUNK_ID))]),
         )
 
         result = client.annotations.list_chunks_with_schema_annotations(
-            OPERATOR_ID, skip=10, limit=5
+            TASK_ID, skip=10, limit=5
         )
 
         assert result.annotations[0].chunk_id == CHUNK_ID
@@ -464,7 +458,7 @@ class TestDocumentScopedListings:
             method="GET",
             url=url(
                 f"/api/annotations/document/{DOC_ID}/chunks-with-annotations"
-                "?operator_name=topics&skip=0&limit=100"
+                "?task_name=topics&skip=0&limit=100"
             ),
             json=_page(
                 "chunks",
@@ -476,7 +470,7 @@ class TestDocumentScopedListings:
         )
 
         result = client.annotations.list_chunks_with_annotations_by_document(
-            DOC_ID, operator_name="topics"
+            DOC_ID, task_name="topics"
         )
 
         assert result.chunks[0].chunk.id == CHUNK_ID
@@ -485,7 +479,7 @@ class TestDocumentScopedListings:
         assert first.root_id == ROOT_ID
         assert result.chunks[1].annotation is None
 
-    def test_chunks_with_annotations_omits_unset_operator(
+    def test_chunks_with_annotations_omits_unset_task(
         self, client: RagnerockClient, httpx_mock: Any
     ) -> None:
         httpx_mock.add_response(
@@ -502,14 +496,13 @@ class TestDocumentScopedListings:
             == []
         )
 
-    def test_by_document_and_operator_id(
+    def test_by_document_and_task_id(
         self, client: RagnerockClient, httpx_mock: Any
     ) -> None:
         httpx_mock.add_response(
             method="GET",
             url=url(
-                f"/api/annotations/document/{DOC_ID}/operator/{OPERATOR_ID}"
-                "?skip=0&limit=100"
+                f"/api/annotations/document/{DOC_ID}/task/{TASK_ID}?skip=0&limit=100"
             ),
             json=_page(
                 "annotations",
@@ -517,9 +510,7 @@ class TestDocumentScopedListings:
             ),
         )
 
-        result = client.annotations.list_by_document_and_operator_id(
-            DOC_ID, OPERATOR_ID
-        )
+        result = client.annotations.list_by_document_and_task_id(DOC_ID, TASK_ID)
 
         assert result.annotations[0].root_id is None
         assert result.annotations[0].data == {"a": 1}
@@ -530,16 +521,15 @@ class TestDocumentScopedListings:
         httpx_mock.add_response(
             method="GET",
             url=url(
-                f"/api/annotations/document/{DOC_ID}"
-                "?operator_name=topics&skip=0&limit=100"
+                f"/api/annotations/document/{DOC_ID}?task_name=topics&skip=0&limit=100"
             ),
             json=_page(
                 "annotations",
                 [
                     {
                         "root_id": str(ROOT_ID),
-                        "operator_id": str(OPERATOR_ID),
-                        "operator_name": "topics",
+                        "task_id": str(TASK_ID),
+                        "task_name": "topics",
                         "confidence_score": None,
                         "created_at": "2026-01-01T00:00:00Z",
                     }
@@ -547,8 +537,8 @@ class TestDocumentScopedListings:
             ),
         )
 
-        result = client.annotations.list_by_document(DOC_ID, operator_name="topics")
+        result = client.annotations.list_by_document(DOC_ID, task_name="topics")
 
         item = result.annotations[0]
-        assert item.operator_name == "topics"
+        assert item.task_name == "topics"
         assert item.data is None

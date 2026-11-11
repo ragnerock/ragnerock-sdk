@@ -20,7 +20,7 @@ def _project(**overrides: Any) -> dict[str, Any]:
         "name": "demo",
         "description": "Demo project",
         "owner_id": OWNER_ID,
-        "auto_archive_succeeded_jobs_after_days": 30,
+        "auto_archive_succeeded_runs_after_days": 30,
     }
     payload.update(overrides)
     return payload
@@ -80,7 +80,7 @@ class TestGet:
         assert project.name == "demo"
         assert project.description == "Demo project"
         assert project.owner_id == uuid.UUID(OWNER_ID)
-        assert project.auto_archive_succeeded_jobs_after_days == 30
+        assert project.auto_archive_succeeded_runs_after_days == 30
 
     def test_minimal_payload_parses(
         self, client: RagnerockClient, httpx_mock: Any
@@ -94,7 +94,7 @@ class TestGet:
         project = client.projects.get(uuid.UUID(PROJECT_ID))
 
         assert project.owner_id is None
-        assert project.auto_archive_succeeded_jobs_after_days is None
+        assert project.auto_archive_succeeded_runs_after_days is None
 
     def test_missing_project_raises(
         self, client: RagnerockClient, httpx_mock: Any

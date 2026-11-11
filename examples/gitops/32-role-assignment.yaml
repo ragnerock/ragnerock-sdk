@@ -1,0 +1,17 @@
+# RoleAssignment · rank 32 · account-scoped. `role` references the Role above.
+# This is the only place a role's members and teams are expressed. Members are
+# users' emails and teams are team names; both must already exist in your
+# account — replace the placeholders. Assignments are additive: applying one
+# never removes a binding it leaves out.
+apiVersion: ragnerock.com/v1alpha2
+kind: RoleAssignment
+metadata:
+  name: quant_researchers_binding
+spec:
+  description: "Who is in the quant research role"
+  role: quant_researchers
+  members:
+    - alice@example.com
+    - bob@example.com
+  teams:
+    - research

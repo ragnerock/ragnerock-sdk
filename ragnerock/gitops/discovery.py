@@ -5,6 +5,10 @@ are walked recursively for ``*.yaml`` / ``*.yml`` files (hidden entries are
 skipped), and only documents whose ``apiVersion`` is in the ``ragnerock.com/``
 API group are kept — any other YAML in the tree (CI configs, Kubernetes
 manifests, …) is ignored. That lets you point it at a whole repository.
+
+A document in the group whose ``apiVersion`` is retired (``v1alpha1``) is
+refused here, before anything is uploaded, so ``--dry-run`` catches it too.
+Any other version is left for the server to judge.
 """
 
 from __future__ import annotations
@@ -23,6 +27,12 @@ from ragnerock.errors import GitOpsError
 API_GROUP = "ragnerock.com/"
 """Prefix every Ragnerock manifest's ``apiVersion`` carries."""
 
+API_VERSION = "ragnerock.com/v1alpha2"
+"""The ``apiVersion`` this SDK writes and documents."""
+
+RETIRED_API_VERSIONS = frozenset({"ragnerock.com/v1alpha1"})
+"""``apiVersion`` values the server no longer accepts; :func:`load_manifests`
+refuses them."""
 STDIN = "-"
 """Source token meaning "read manifests from standard input"."""
 
@@ -141,8 +151,9 @@ def load_manifests(
         ManifestSet: The Ragnerock documents found, and what was skipped.
 
     Raises:
-        GitOpsError: If a source is missing or unreadable, or contains
-            invalid YAML.
+        GitOpsError: If a source is missing or unreadable, contains invalid
+            YAML, or holds a document with a retired ``apiVersion``
+            (see :data:`RETIRED_API_VERSIONS`).
     """
     result = ManifestSet()
     for source in expand_sources(sources):
@@ -161,9 +172,37 @@ def load_manifests(
         except yaml.YAMLError as e:
             raise GitOpsError(f"invalid YAML in {label}: {e}") from e
 
+        for index, doc in enumerate(parsed):
+            if is_ragnerock_document(doc) and doc["apiVersion"] in RETIRED_API_VERSIONS:
+                raise _retired_version_error(label, index, doc["apiVersion"])
         kept = [doc for doc in parsed if is_ragnerock_document(doc)]
         result.skipped += len(parsed) - len(kept)
         if kept:
             result.documents.extend(kept)
             result.files.append(label)
     return result
+
+
+def _retired_version_error(label: str, index: int, api_version: str) -> GitOpsError:
+    """Build the error for a document whose ``apiVersion`` is retired.
+
+    Args:
+        label (str): The source the document came from.
+        index (int): The document's position in the source, counting from
+            zero and skipping empty documents.
+        api_version (str): The retired ``apiVersion`` it carries.
+
+    Returns:
+        GitOpsError: The refusal, worded as the server words it.
+    """
+    version = api_version.removeprefix(API_GROUP)
+    current = API_VERSION.removeprefix(API_GROUP)
+    return GitOpsError(
+        f"{label}: document[{index}]: This manifest uses apiVersion {version}; "
+        f"export it again from Ragnerock to get {current}.",
+        suggestion=(
+            f"In {current}, a `Task` is what {version} called an `Agent`, and an "
+            f"`Agent` is what it called a `Workflow`; several spec fields were "
+            "renamed too. See 'Migrating to 3.0' in the SDK documentation."
+        ),
+    )

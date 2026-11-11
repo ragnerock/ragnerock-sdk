@@ -33,16 +33,19 @@ links to the canonical submodule pages for full signatures and docstrings.
 
 ## Resources
 
+- {class}`ragnerock.resources.agent.Agent`
+- {class}`ragnerock.resources.agent.AgentNode`
+- {class}`ragnerock.resources.agent.AgentSchedule`
 - {class}`ragnerock.resources.annotation.Annotation`
 - {class}`ragnerock.resources.chunk.Chunk`
 - {class}`ragnerock.resources.chunk.ChunkType`
 - {class}`ragnerock.resources.document.Document`
-- {class}`ragnerock.resources.document.DocumentGroup`
+- {class}`ragnerock.resources.document.DocumentFolder`
+- {class}`ragnerock.resources.document.DocumentStatus`
 - {class}`ragnerock.resources.document.FileType`
-- {class}`ragnerock.resources.job.Job`
-- {class}`ragnerock.resources.job.JobStatus`
-- {class}`ragnerock.resources.job.JobType`
-- {class}`ragnerock.resources.operator.Operator`
 - {class}`ragnerock.resources.page.Page`
-- {class}`ragnerock.resources.workflow.Workflow`
-- {class}`ragnerock.resources.workflow.WorkflowNode`
+- {class}`ragnerock.resources.run.Run`
+- {class}`ragnerock.resources.run.RunKind`
+- {class}`ragnerock.resources.run.RunStatus`
+- {class}`ragnerock.resources.task.Task`
+- {class}`ragnerock.resources.task.TaskKind`

@@ -27,12 +27,13 @@ from ragnerock.session import Session
 
 _FILTER_HELP = (
     "Repeatable filter in key=value form. Required for some kinds "
-    "(e.g. chunk, page require document=...)."
+    "(e.g. chunk, page require document=...; annotation takes document=, "
+    "chunk=, task= or task-name=)."
 )
 
 
 def get_cmd(
-    kind: Annotated[str, typer.Argument(help="Resource kind (e.g. doc, workflow).")],
+    kind: Annotated[str, typer.Argument(help="Resource kind (e.g. doc, agent).")],
     name: Annotated[
         str | None,
         typer.Argument(help="Optional resource name. Omit to list all of this kind."),
@@ -181,9 +182,9 @@ def _translate_list_filters(spec: KindSpec, filters: dict[str, str]) -> dict[str
     aliases = {
         "document": "document_id",
         "chunk": "chunk_id",
-        "operator": "operator_id",
-        "operator-name": "operator_name",
-        "operator_name": "operator_name",
+        "task": "task_id",
+        "task-name": "task_name",
+        "task_name": "task_name",
     }
     out: dict[str, str] = {}
     for key, value in filters.items():

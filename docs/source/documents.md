@@ -34,7 +34,7 @@ session.add(doc)
 session.commit()
 ```
 
-Optional fields on create: `group_id`, `file_type`, `metadata`.
+Optional fields on create: `document_folder_id`, `file_type`, `metadata`.
 
 ## Updating
 
@@ -42,7 +42,7 @@ Mutate the resource, then stage and commit:
 
 ```python
 doc.name = "renamed.pdf"
-doc.group_id = other_group.id
+doc.document_folder_id = other_folder.id
 session.update(doc)
 session.commit()
 ```
@@ -60,31 +60,34 @@ session.commit()
 data: bytes = doc.content()
 ```
 
-## Document groups
+## Document folders
 
-Groups are project-scoped named collections:
+Document folders are project-scoped named collections of documents. A document belongs to at most one, through its `document_folder_id`:
 
 ```python
-from ragnerock import DocumentGroup
+from ragnerock import DocumentFolder
 
-g = DocumentGroup(name="Q1 contracts")
-session.add(g)
+folder = DocumentFolder(name="Q1 contracts")
+session.add(folder)
 session.commit()
 
-# List all groups
-groups = session.list(DocumentGroup).all()
+# List all document folders
+folders = session.list(DocumentFolder).all()
 
-# List documents in a group
-docs = g.list(Document).all()
+# List documents in a folder
+docs = folder.list(Document).all()
 
-# Get a single group
-group = session.get(DocumentGroup, id=my_group_id)
+# Get a single folder, by id or name
+folder = session.get(DocumentFolder, id=my_folder_id)
+folder = session.get(DocumentFolder, name="Q1 contracts")
 
-# Move a document into a group
-doc.group_id = g.id
+# Move a document into a folder
+doc.document_folder_id = folder.id
 session.update(doc)
 session.commit()
 ```
+
+A `DocumentFolder`'s own `folder_id` is something else: the folder it is filed under in the project's folder tree in the app.
 
 ## Chunks
 
@@ -128,13 +131,13 @@ Attempting `session.add(page)` / `update` / `delete` raises exceptions as they a
 
 ## Processing status
 
-`doc.status` reports where the server is with a document: `PENDING`, `PROCESSING`, `READY`, or `ERROR` (and `FETCHING` / `NOT_FETCHED` for documents an ingest source pulls). For stage-by-stage progress, fetch the document's job:
+`doc.status` reports where the server is with a document: `PENDING`, `PROCESSING`, `READY`, or `ERROR` (and `FETCHING` / `NOT_FETCHED` for documents an ingest source pulls). For stage-by-stage progress, fetch the document's latest [run](runs.md):
 
 ```python
 from ragnerock import DocumentStatus
 
 session.refresh(doc)
 if doc.status is not DocumentStatus.READY:
-    job = doc.job()
-    print(job.phase, job.current_stage_name, job.current_stage_subtasks_completed)
+    run = doc.latest_run()
+    print(run.phase, run.current_stage_name, run.current_stage_subtasks_completed)
 ```

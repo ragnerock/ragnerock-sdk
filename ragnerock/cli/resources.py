@@ -15,14 +15,14 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel
 
 from ragnerock.resources import (
+    Agent,
     Annotation,
     Chunk,
     Document,
-    DocumentGroup,
-    Job,
-    Operator,
+    DocumentFolder,
     Page,
-    Workflow,
+    Run,
+    Task,
 )
 from ragnerock.resources.base import _Resource
 
@@ -69,15 +69,22 @@ _KINDS: tuple[KindSpec, ...] = (
             ("ID", "id"),
             ("FILE_TYPE", "file_type"),
             ("STATUS", "status"),
-            ("GROUP", "group_id"),
+            ("FOLDER", "document_folder_id"),
             ("CREATED", "created_at"),
         ),
         deletable=True,
     ),
     KindSpec(
-        kind="DocumentGroup",
-        cls=DocumentGroup,
-        aliases=("documentgroup", "documentgroups", "grp", "group", "groups"),
+        kind="DocumentFolder",
+        cls=DocumentFolder,
+        aliases=(
+            "documentfolder",
+            "documentfolders",
+            "document-folder",
+            "document-folders",
+            "folder",
+            "folders",
+        ),
         list_columns=(
             ("NAME", "name"),
             ("ID", "id"),
@@ -86,22 +93,22 @@ _KINDS: tuple[KindSpec, ...] = (
         deletable=True,
     ),
     KindSpec(
-        kind="Operator",
-        cls=Operator,
-        aliases=("operator", "operators", "op", "ops"),
+        kind="Task",
+        cls=Task,
+        aliases=("task", "tasks"),
         list_columns=(
             ("NAME", "name"),
             ("ID", "id"),
-            ("KIND", "operator_kind"),
+            ("KIND", "task_kind"),
             ("CHUNK_TYPE", "chunk_type"),
             ("CREATED", "created_at"),
         ),
         deletable=True,
     ),
     KindSpec(
-        kind="Workflow",
-        cls=Workflow,
-        aliases=("workflow", "workflows", "wf", "wfs"),
+        kind="Agent",
+        cls=Agent,
+        aliases=("agent", "agents"),
         list_columns=(
             ("NAME", "name"),
             ("ID", "id"),
@@ -117,7 +124,7 @@ _KINDS: tuple[KindSpec, ...] = (
         aliases=("annotation", "annotations", "anno", "annos"),
         list_columns=(
             ("ID", "root_id"),
-            ("OPERATOR", "operator_name"),
+            ("TASK", "task_name"),
             ("DOCUMENT", "document_id"),
             ("CHUNK", "chunk_id"),
             ("CREATED", "created_at"),
@@ -145,9 +152,9 @@ _KINDS: tuple[KindSpec, ...] = (
         ),
     ),
     KindSpec(
-        kind="Job",
-        cls=Job,
-        aliases=("job", "jobs"),
+        kind="Run",
+        cls=Run,
+        aliases=("run", "runs"),
         list_columns=(
             ("ID", "id"),
             ("STATUS", "status"),
@@ -164,7 +171,7 @@ _PAGE_SIZE = 50
 # Attributes that identify an item, in lookup order, after which ``id`` is tried.
 NAME_FIELDS: tuple[str, ...] = (
     "name",
-    "operator_name",
+    "task_name",
     "config_name",
     "title",
     "file_name",
@@ -196,15 +203,13 @@ def _paged(fetch: Callable[[int, int], Any], field_name: str) -> list[BaseModel]
 
 
 def _list_artifacts(session: Session) -> list[BaseModel]:
-    """Collect every workflow artifact in the project by following cursors."""
+    """Collect every output artifact in the project by following cursors."""
     client = session._engine.client
     project_id = session._engine.project_id
     items: list[BaseModel] = []
     cursor: str | None = None
     while True:
-        page = client.workflow_artifacts.list(
-            project_id, cursor=cursor, limit=_PAGE_SIZE
-        )
+        page = client.output_artifacts.list(project_id, cursor=cursor, limit=_PAGE_SIZE)
         items.extend(page.artifacts)
         cursor = page.next_cursor
         if not cursor or not page.artifacts:
@@ -275,21 +280,14 @@ _CLIENT_KINDS: tuple[KindSpec, ...] = (
             ("NAME", "name"),
             ("ID", "id"),
             ("AVAILABLE", "is_available"),
-            ("AGENTS", "operator_count"),
+            ("TASKS", "task_count"),
             ("UPDATED", "updated_at"),
         ),
         list_fn=_project_scoped("skills", "list", "skills"),
     ),
     KindSpec(
         kind="Tool",
-        aliases=(
-            "tool",
-            "tools",
-            "agenttool",
-            "agenttools",
-            "agent-tool",
-            "agent-tools",
-        ),
+        aliases=("tool", "tools"),
         list_columns=(
             ("NAME", "name"),
             ("SLUG", "slug"),
@@ -331,19 +329,20 @@ _CLIENT_KINDS: tuple[KindSpec, ...] = (
         list_fn=_project_scoped("queries", "list", "queries", project_kw="project_ids"),
     ),
     KindSpec(
-        kind="WorkflowArtifact",
+        kind="OutputArtifact",
         aliases=(
-            "workflowartifact",
-            "workflowartifacts",
-            "workflow-artifact",
-            "workflow-artifacts",
+            "outputartifact",
+            "outputartifacts",
+            "output-artifact",
+            "output-artifacts",
             "artifact",
             "artifacts",
         ),
         list_columns=(
             ("FILE", "file_name"),
             ("ID", "id"),
-            ("WORKFLOW", "workflow_name"),
+            ("AGENT", "agent_name"),
+            ("OUTPUT", "output_name"),
             ("FORMAT", "format"),
             ("SIZE", "size_bytes"),
             ("CREATED", "created_at"),
@@ -460,7 +459,7 @@ def resource_name(resource: BaseModel) -> str | None:
     """Compute a best-effort display name for a resource.
 
     Uses the first of :data:`NAME_FIELDS` that is set — ``name`` for most
-    kinds, ``operator_name`` for annotations, ``config_name`` for provider
+    kinds, ``task_name`` for annotations, ``config_name`` for provider
     configs, ``title`` for notebooks, ``file_name`` for artifacts — then the
     id as a last resort. Returns
     ``None`` only for resources that have no identity at all, which should

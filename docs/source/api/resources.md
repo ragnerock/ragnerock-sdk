@@ -5,6 +5,14 @@
    :no-members:
 ```
 
+## Agent
+
+```{eval-rst}
+.. automodule:: ragnerock.resources.agent
+   :members:
+   :show-inheritance:
+```
+
 ## Annotation
 
 ```{eval-rst}
@@ -29,22 +37,6 @@
    :show-inheritance:
 ```
 
-## Job
-
-```{eval-rst}
-.. automodule:: ragnerock.resources.job
-   :members:
-   :show-inheritance:
-```
-
-## Operator
-
-```{eval-rst}
-.. automodule:: ragnerock.resources.operator
-   :members:
-   :show-inheritance:
-```
-
 ## Page
 
 ```{eval-rst}
@@ -53,10 +45,18 @@
    :show-inheritance:
 ```
 
-## Workflow
+## Run
 
 ```{eval-rst}
-.. automodule:: ragnerock.resources.workflow
+.. automodule:: ragnerock.resources.run
+   :members:
+   :show-inheritance:
+```
+
+## Task
+
+```{eval-rst}
+.. automodule:: ragnerock.resources.task
    :members:
    :show-inheritance:
 ```

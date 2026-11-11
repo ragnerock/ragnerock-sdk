@@ -43,8 +43,8 @@ class IngestConfigResponse(_ApiModel):
             ``source_type``. Secrets are never returned; flags such as
             ``credentials_configured`` (web, S3) or ``secrets`` (SQL) say
             which are stored.
-        document_group_id (UUID | None): The document group the config files
-            its documents in, once its first run has filed any.
+        document_folder_id (UUID | None): The document folder the config
+            files its documents in, once its first run has filed any.
     """
 
     id: UUID
@@ -53,7 +53,7 @@ class IngestConfigResponse(_ApiModel):
     name: str | None = None
     cron: str | None = None
     source: dict[str, Any] = {}
-    document_group_id: UUID | None = None
+    document_folder_id: UUID | None = None
     created_at: UtcDatetime = None
     updated_at: UtcDatetime = None
 
@@ -67,34 +67,40 @@ class IngestConfigsPaginatedResponse(_ApiModel):
     limit: int = 0
 
 
-class IngestConfigWorkflowRef(_ApiModel):
-    """A workflow ingest resource that follows an ingest config.
+class IngestConfigAgentRef(_ApiModel):
+    """An agent's ingest input that follows an ingest config.
 
     Attributes:
-        workflow_id (UUID): The workflow.
-        resource_id (UUID): Its ingest resource bound to the config.
+        agent_id (UUID): The agent.
+        agent_name (str | None): The agent's name.
+        input_id (UUID): Its ingest input bound to the config.
+        input_name (str | None): That input's name.
         process_mode (str | None): ``"CHANGES"`` (only changed entries) or
             ``"FULL"`` (every entry).
         trigger (bool | None): Whether a run of the config starts the
-            workflow.
+            agent.
     """
 
-    workflow_id: UUID
-    workflow_name: str | None = None
-    resource_id: UUID
-    resource_name: str | None = None
+    agent_id: UUID
+    agent_name: str | None = None
+    input_id: UUID
+    input_name: str | None = None
     process_mode: str | None = None
     trigger: bool | None = None
 
 
-class IngestWorkflowLinkNoticeResponse(_ApiModel):
-    """A pending suggestion to bind an ingest source to a workflow."""
+class IngestAgentLinkNoticeResponse(_ApiModel):
+    """A pending suggestion to bind an ingest source to an agent.
+
+    Created on upgrade for agents that used to run automatically on ingested
+    documents.
+    """
 
     id: UUID
     config_id: UUID | None = None
     config_name: str | None = None
-    workflow_id: UUID | None = None
-    workflow_name: str | None = None
+    agent_id: UUID | None = None
+    agent_name: str | None = None
 
 
 # -- sources, entries and versions -----------------------------------------------
@@ -601,17 +607,18 @@ class _IngestSourcesSection(_Section):
         """Delete an ingest config, its source and its schedule.
 
         Calls ``DELETE /ingest/configure/{project_id}/{config_id}``. A run
-        already in progress is allowed to finish. A config that workflows are
-        bound to can't be deleted until they stop using it (see
-        :meth:`list_config_workflows`).
+        already in progress is allowed to finish. A config that agents' inputs
+        are bound to can't be deleted until they stop using it (see
+        :meth:`list_config_agents`).
 
         Args:
             project_id (UUID): The project the config belongs to.
             config_id (UUID): The config to delete.
 
         Raises:
-            RagnerockError: With status 409 if workflows are still bound to
-                the config.
+            RagnerockError: With status 409 if agents are still bound to the
+                config. The response body lists them under ``agents``;
+                :meth:`list_config_agents` returns the same list.
         """
         self._parent._request("DELETE", f"/ingest/configure/{project_id}/{config_id}")
 
@@ -679,59 +686,57 @@ class _IngestSourcesSection(_Section):
         )
         return SqlPreviewResponse.model_validate(response.json())
 
-    # -- workflow bindings ------------------------------------------------------
+    # -- agent bindings ---------------------------------------------------------
 
-    def list_config_workflows(
+    def list_config_agents(
         self, project_id: UUID, config_id: UUID
-    ) -> list[IngestConfigWorkflowRef]:
-        """List the workflows bound to an ingest config.
+    ) -> list[IngestConfigAgentRef]:
+        """List the agents bound to an ingest config.
 
-        Calls ``GET /ingest/workflows/{project_id}/{config_id}``. Each item is
-        one workflow ingest resource that follows the config.
+        Calls ``GET /ingest/agents/{project_id}/{config_id}``. Each item is
+        one agent's ingest input that follows the config.
 
         Args:
             project_id (UUID): The project the config belongs to.
             config_id (UUID): The config.
 
         Returns:
-            list[IngestConfigWorkflowRef]: The bound workflow resources.
+            list[IngestConfigAgentRef]: The bound agent inputs.
         """
         response = self._parent._request(
-            "GET", f"/ingest/workflows/{project_id}/{config_id}"
+            "GET", f"/ingest/agents/{project_id}/{config_id}"
         )
-        return [
-            IngestConfigWorkflowRef.model_validate(item) for item in response.json()
-        ]
+        return [IngestConfigAgentRef.model_validate(item) for item in response.json()]
 
-    def list_workflow_link_notices(
+    def list_agent_link_notices(
         self, project_id: UUID
-    ) -> list[IngestWorkflowLinkNoticeResponse]:
-        """List a project's pending suggestions to bind a source to a workflow.
+    ) -> list[IngestAgentLinkNoticeResponse]:
+        """List a project's pending suggestions to bind a source to an agent.
 
-        Calls ``GET /ingest/workflow-link-notices/{project_id}``. Documents
-        from ingest sources don't start workflows that run automatically on
-        upload. Each notice names a workflow that used to run on a source's
+        Calls ``GET /ingest/agent-link-notices/{project_id}``. Documents
+        from ingest sources don't start agents that run automatically on
+        upload. Each notice names an agent that used to run on a source's
         documents and can be linked to that source instead.
 
         Args:
             project_id (UUID): The project.
 
         Returns:
-            list[IngestWorkflowLinkNoticeResponse]: The pending notices.
+            list[IngestAgentLinkNoticeResponse]: The pending notices.
         """
         response = self._parent._request(
-            "GET", f"/ingest/workflow-link-notices/{project_id}"
+            "GET", f"/ingest/agent-link-notices/{project_id}"
         )
         return [
-            IngestWorkflowLinkNoticeResponse.model_validate(item)
+            IngestAgentLinkNoticeResponse.model_validate(item)
             for item in response.json()
         ]
 
-    def link_workflow_notice(self, project_id: UUID, notice_id: UUID) -> None:
-        """Bind a notice's ingest source to its workflow and resolve the notice.
+    def link_agent_notice(self, project_id: UUID, notice_id: UUID) -> None:
+        """Bind a notice's ingest source to its agent and resolve the notice.
 
-        Calls ``POST /ingest/workflow-link-notices/{project_id}/{notice_id}/link``.
-        Adds an ingest resource for the source to the workflow.
+        Calls ``POST /ingest/agent-link-notices/{project_id}/{notice_id}/link``.
+        Adds an ingest input for the source to the agent.
 
         Args:
             project_id (UUID): The project.
@@ -741,13 +746,13 @@ class _IngestSourcesSection(_Section):
             NotFoundError: If the notice is unknown or already resolved.
         """
         self._parent._request(
-            "POST", f"/ingest/workflow-link-notices/{project_id}/{notice_id}/link"
+            "POST", f"/ingest/agent-link-notices/{project_id}/{notice_id}/link"
         )
 
-    def dismiss_workflow_notice(self, project_id: UUID, notice_id: UUID) -> None:
-        """Resolve a notice without changing its workflow.
+    def dismiss_agent_notice(self, project_id: UUID, notice_id: UUID) -> None:
+        """Resolve a notice without changing its agent.
 
-        Calls ``POST /ingest/workflow-link-notices/{project_id}/{notice_id}/dismiss``.
+        Calls ``POST /ingest/agent-link-notices/{project_id}/{notice_id}/dismiss``.
 
         Args:
             project_id (UUID): The project.
@@ -757,5 +762,5 @@ class _IngestSourcesSection(_Section):
             NotFoundError: If the notice is unknown or already resolved.
         """
         self._parent._request(
-            "POST", f"/ingest/workflow-link-notices/{project_id}/{notice_id}/dismiss"
+            "POST", f"/ingest/agent-link-notices/{project_id}/{notice_id}/dismiss"
         )

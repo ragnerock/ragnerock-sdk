@@ -14,7 +14,7 @@ from ragnerock.client._base import _ApiModel, _Section
 APPLY_TIMEOUT_SECONDS = 300.0
 """Read timeout for an apply.
 
-An apply is not just database work: each code agent in the manifest is
+An apply is not just database work: each code task in the manifest is
 security-reviewed with an LLM call. The client waits comfortably longer than
 the server's own budget for that, because timing out would report a failure
 for an apply the server had already committed.
@@ -46,8 +46,8 @@ class GitOpsApplyResult(_ApiModel):
             ``"error"``.
         errors (list[Any]): Why the object failed to apply.
         warnings (list[Any]): Problems the server applied around, which will
-            otherwise surface only at run time — e.g. an agent whose model
-            binding did not resolve, or a workflow node nothing feeds.
+            otherwise surface only at run time — e.g. a task whose model
+            binding did not resolve, or an agent node nothing feeds.
     """
 
     kind: str

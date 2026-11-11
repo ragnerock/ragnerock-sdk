@@ -23,7 +23,7 @@ from ragnerock.gitops import (
     render_dry_run,
 )
 from tests.unit.conftest import TEST_HOST
-from tests.unit.gitops.helpers import agent_doc, secret_doc
+from tests.unit.gitops.helpers import task_doc, secret_doc
 
 APPLY_URL = f"{TEST_HOST}/api/gitops/apply"
 KEY_URL = f"{TEST_HOST}/api/gitops/sealing-key"
@@ -41,7 +41,7 @@ _REPORT: dict[str, Any] = {
             "warnings": [],
         },
         {
-            "kind": "Agent",
+            "kind": "Task",
             "name": "scorer",
             "action": "unchanged",
             "errors": [],
@@ -117,7 +117,7 @@ class TestPrepare:
     def test_no_secret_values_never_asks_for_a_key(
         self, httpx_mock: Any, client: RagnerockClient
     ) -> None:
-        prepared = prepare_manifest(_manifests(agent_doc()), client=client)
+        prepared = prepare_manifest(_manifests(task_doc()), client=client)
         assert httpx_mock.get_requests() == []
         assert prepared.sealing_fingerprint is None
 
@@ -151,7 +151,7 @@ class TestDryRun:
                     "fromAwsSecretsManager": {"c": {"secretId": "prod/db"}},
                 }
             ),
-            agent_doc(),
+            task_doc(),
         )
         prepared = render_dry_run(manifests, env={"V": "env-secret"})
         text = prepared.to_yaml()
@@ -190,7 +190,7 @@ class TestApplyManifests:
         (tmp_path / "secrets.yaml").write_text(
             yaml.safe_dump(secret_doc({"stringData": {"a": "s3cret"}}))
         )
-        (tmp_path / "agents.yaml").write_text(yaml.safe_dump(agent_doc()))
+        (tmp_path / "tasks.yaml").write_text(yaml.safe_dump(task_doc()))
         httpx_mock.add_response(method="POST", url=APPLY_URL, json=_REPORT)
 
         report = apply_manifests(client, [tmp_path], sealing_public_key=sealing_pem)
@@ -198,8 +198,9 @@ class TestApplyManifests:
         assert report.ok
         assert report.changed == 1
         docs = _uploaded(httpx_mock)
-        assert [d["kind"] for d in docs] == ["Agent", "Secret"]
-        assert unseal(docs[1]["spec"]["encryptedData"]["a"]["ciphertext"]) == "s3cret"
+        # Directory walk order: "secrets.yaml" sorts before "tasks.yaml".
+        assert [d["kind"] for d in docs] == ["Secret", "Task"]
+        assert unseal(docs[0]["spec"]["encryptedData"]["a"]["ciphertext"]) == "s3cret"
         request = httpx_mock.get_requests()[-1]
         assert "dry_run" not in request.url.params
         assert 'filename="manifest.yaml"' in request.content.decode()
@@ -213,7 +214,7 @@ class TestApplyManifests:
             url=f"{APPLY_URL}?dry_run=true",
             json={**_REPORT, "dry_run": True},
         )
-        report = apply_manifests(client, _manifests(agent_doc()), plan=True)
+        report = apply_manifests(client, _manifests(task_doc()), plan=True)
         assert report.dry_run
 
     def test_empty_set_makes_no_request(
@@ -224,9 +225,18 @@ class TestApplyManifests:
         assert report.results == []
         assert httpx_mock.get_requests() == []
 
+    def test_v1alpha1_is_refused_before_any_request(
+        self, httpx_mock: Any, client: RagnerockClient, tmp_path: Path
+    ) -> None:
+        old = {**task_doc(), "apiVersion": "ragnerock.com/v1alpha1", "kind": "Agent"}
+        (tmp_path / "tasks.yaml").write_text(yaml.safe_dump(old))
+        with pytest.raises(GitOpsError, match=r"tasks\.yaml: document\[0\]"):
+            apply_manifests(client, [tmp_path], plan=True)
+        assert httpx_mock.get_requests() == []
+
     def test_reads_stdin(self, httpx_mock: Any, client: RagnerockClient) -> None:
         httpx_mock.add_response(method="POST", url=APPLY_URL, json=_REPORT)
-        stdin = io.StringIO(yaml.safe_dump(agent_doc("piped")))
+        stdin = io.StringIO(yaml.safe_dump(task_doc("piped")))
         apply_manifests(client, ["-"], stdin=stdin)
         assert _uploaded(httpx_mock)[0]["metadata"]["name"] == "piped"
 
@@ -240,7 +250,7 @@ class TestApplyManifests:
             json={"detail": "Secret 'creds' carries an authored source"},
         )
         with pytest.raises(ValidationError, match="authored source"):
-            apply_manifests(client, _manifests(agent_doc()))
+            apply_manifests(client, _manifests(task_doc()))
 
 
 class TestMasking:

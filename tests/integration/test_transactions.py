@@ -16,7 +16,7 @@ from ragnerock import (
     CommitError,
     Document,
     NotFoundError,
-    Operator,
+    Task,
     ValidationError,
 )
 
@@ -246,8 +246,8 @@ class TestStagingSemantics:
 
 
 class TestMixedTypeCommit:
-    def test_add_operator_and_document_together(self, session, unique_name, tmp_path):
-        op = Operator(
+    def test_add_task_and_document_together(self, session, unique_name, tmp_path):
+        task = Task(
             name=unique_name,
             description="mixed-type test",
             jsonschema={"type": "object"},
@@ -255,17 +255,17 @@ class TestMixedTypeCommit:
             chunk_type=ChunkType.DOCUMENT,
         )
         doc = Document(file_path=_fake_pdf(tmp_path, unique_name), name=unique_name)
-        session.add(op)
+        session.add(task)
         session.add(doc)
         session.commit()
 
         try:
-            assert op.id is not None
+            assert task.id is not None
             assert doc.id is not None
         finally:
             session.delete(doc)
             session.commit()
-            session.delete(op)
+            session.delete(task)
             session.commit()
 
 
@@ -273,17 +273,17 @@ class TestRunRequiresCommitted:
     """``session.run()`` refuses uncommitted resources — no autoflush."""
 
     def test_run_with_uncommitted_doc_raises(self, session, unique_name):
-        from ragnerock import Workflow
+        from ragnerock import Agent
 
-        wf = Workflow(id="00000000-0000-0000-0000-000000000701", name=unique_name)
+        agent = Agent(id="00000000-0000-0000-0000-000000000701", name=unique_name)
         doc = Document(file_path="./x.pdf")  # no id
         with pytest.raises(ValidationError):
-            session.run(wf, documents=[doc])
+            session.run(agent, documents=[doc])
 
-    def test_run_with_uncommitted_workflow_raises(self, session, unique_name):
-        from ragnerock import Workflow
+    def test_run_with_uncommitted_agent_raises(self, session, unique_name):
+        from ragnerock import Agent
 
-        wf = Workflow(name=unique_name)  # no id
+        agent = Agent(name=unique_name)  # no id
         doc = Document(id="00000000-0000-0000-0000-000000000101")
         with pytest.raises(ValidationError):
-            session.run(wf, documents=[doc])
+            session.run(agent, documents=[doc])

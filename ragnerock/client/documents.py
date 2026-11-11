@@ -8,7 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from ragnerock.client._base import _ApiModel, _jsonable, _Section
-from ragnerock.client.jobs import JobResponse
+from ragnerock.client.runs import RunResponse
 from ragnerock.timestamps import UtcDatetime
 
 
@@ -73,7 +73,7 @@ class DocumentResponse(_ApiModel):
     id: UUID
     project_id: UUID
     name: str
-    group_id: UUID | None = None
+    document_folder_id: UUID | None = None
     file_type: int | None = None
     status: str | None = None
     filesize: int | None = None
@@ -177,8 +177,8 @@ class _DocumentsSection(_Section):
         project_ids: str | None = None,
         skip: int = 0,
         limit: int = 100,
-        group_id: UUID | None = None,
-        ungrouped: bool = False,
+        document_folder_id: UUID | None = None,
+        unfiled: bool = False,
         is_sample: bool | None = None,
         name: str | None = None,
         filters: list[dict[str, Any]] | None = None,
@@ -196,9 +196,10 @@ class _DocumentsSection(_Section):
                 to list across every accessible project.
             skip (int): Offset into the result set.
             limit (int): Maximum number of results per page (at most 1000).
-            group_id (UUID | None): Only documents in this group.
-            ungrouped (bool): Only documents in no group. Cannot be combined
-                with ``group_id``.
+            document_folder_id (UUID | None): Only documents in this document
+                folder.
+            unfiled (bool): Only documents in no document folder. Cannot be
+                combined with ``document_folder_id``.
             is_sample (bool | None): ``True`` for sample documents only,
                 ``False`` for corpus documents only, ``None`` for both.
             name (str | None): Only names containing this text, ignoring case.
@@ -229,10 +230,10 @@ class _DocumentsSection(_Section):
             sort_order=sort_order,
         )
         params["project_ids"] = project_ids
-        if group_id is not None:
-            params["group_id"] = str(group_id)
-        if ungrouped:
-            params["ungrouped"] = "true"
+        if document_folder_id is not None:
+            params["document_folder_id"] = str(document_folder_id)
+        if unfiled:
+            params["unfiled"] = "true"
         response = self._parent._request("GET", "/api/documents/", params=params)
         return DocumentListResponse.model_validate(response.json())
 
@@ -284,7 +285,7 @@ class _DocumentsSection(_Section):
         file_path: str | None = None,
         source_url: str | None = None,
         name: str | None = None,
-        group_id: UUID | None = None,
+        document_folder_id: UUID | None = None,
         file_type: int | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> DocumentResponse:
@@ -301,7 +302,8 @@ class _DocumentsSection(_Section):
             file_path (str | None): Local path to a readable file to upload.
             source_url (str | None): URL the server should fetch.
             name (str | None): Display name. If omitted, the server derives one.
-            group_id (UUID | None): Optional group membership.
+            document_folder_id (UUID | None): The document folder to file it
+                in, if any.
             file_type (int | None): Integer value of a :class:`FileType`.
             metadata (dict[str, Any] | None): Arbitrary JSON metadata stored alongside the document.
 
@@ -315,8 +317,8 @@ class _DocumentsSection(_Section):
         form: dict[str, Any] = {"project_id": str(project_id)}
         if name is not None:
             form["name"] = name
-        if group_id is not None:
-            form["group_id"] = str(group_id)
+        if document_folder_id is not None:
+            form["document_folder_id"] = str(document_folder_id)
         if file_type is not None:
             form["file_type"] = str(int(file_type))
         if source_url is not None:
@@ -346,7 +348,7 @@ class _DocumentsSection(_Section):
         document_id: UUID,
         *,
         name: str | None = None,
-        group_id: UUID | None = None,
+        document_folder_id: UUID | None = None,
         storage_path: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> DocumentResponse:
@@ -358,7 +360,7 @@ class _DocumentsSection(_Section):
         Args:
             document_id (UUID): Document to update.
             name (str | None): New display name.
-            group_id (UUID | None): New group membership.
+            document_folder_id (UUID | None): The document folder to move it to.
             storage_path (str | None): New storage path (rarely used; admin scenarios).
             metadata (dict[str, Any] | None): Replacement metadata dict.
 
@@ -368,8 +370,8 @@ class _DocumentsSection(_Section):
         body: dict[str, Any] = {}
         if name is not None:
             body["name"] = name
-        if group_id is not None:
-            body["group_id"] = str(group_id)
+        if document_folder_id is not None:
+            body["document_folder_id"] = str(document_folder_id)
         if storage_path is not None:
             body["storage_path"] = storage_path
         if metadata is not None:
@@ -409,9 +411,9 @@ class _DocumentsSection(_Section):
         response = self._parent._request("GET", f"/api/documents/{document_id}/content")
         return response.content
 
-    def list_by_group(
+    def list_by_document_folder(
         self,
-        group_id: UUID,
+        document_folder_id: UUID,
         *,
         skip: int = 0,
         limit: int = 100,
@@ -423,13 +425,13 @@ class _DocumentsSection(_Section):
         sort_by: str = DocumentSortField.ID,
         sort_order: str = SortOrder.ASC,
     ) -> DocumentListResponse:
-        """List documents belonging to a group.
+        """List the documents in a document folder.
 
-        Calls ``GET /api/documents/group/{group_id}``. Takes the same filters
-        as :meth:`list`.
+        Calls ``GET /api/documents/document-folder/{document_folder_id}``.
+        Takes the same filters as :meth:`list`.
 
         Args:
-            group_id (UUID): Group to list.
+            document_folder_id (UUID): Document folder to list.
             skip (int): Offset into the result set.
             limit (int): Maximum number of results per page (at most 1000).
             is_sample (bool | None): ``True`` for sample documents only,
@@ -445,7 +447,7 @@ class _DocumentsSection(_Section):
             sort_order (str): A :class:`SortOrder` value.
 
         Returns:
-            DocumentListResponse: A page of documents in the group.
+            DocumentListResponse: A page of documents in the folder.
         """
         params = _document_listing_params(
             skip,
@@ -459,26 +461,28 @@ class _DocumentsSection(_Section):
             sort_order=sort_order,
         )
         response = self._parent._request(
-            "GET", f"/api/documents/group/{group_id}", params=params
+            "GET",
+            f"/api/documents/document-folder/{document_folder_id}",
+            params=params,
         )
         return DocumentListResponse.model_validate(response.json())
 
-    def get_job(self, document_id: UUID) -> JobResponse:
-        """Fetch the latest processing job for a document.
+    def get_run(self, document_id: UUID) -> RunResponse:
+        """Fetch the latest processing run for a document.
 
-        Calls ``GET /api/documents/{document_id}/job``.
+        Calls ``GET /api/documents/{document_id}/run``.
 
         Args:
-            document_id (UUID): Document whose job to fetch.
+            document_id (UUID): Document whose run to fetch.
 
         Returns:
-            JobResponse: The document's most recent job.
+            RunResponse: The document's most recent run.
 
         Raises:
-            NotFoundError: If the document has no job.
+            NotFoundError: If the document has no run.
         """
-        response = self._parent._request("GET", f"/api/documents/{document_id}/job")
-        return JobResponse.model_validate(response.json())
+        response = self._parent._request("GET", f"/api/documents/{document_id}/run")
+        return RunResponse.model_validate(response.json())
 
     def get_metadata(self, document_id: UUID) -> DocumentMetadataListResponse:
         """Fetch a document's passthrough metadata entries.

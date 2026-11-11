@@ -1,4 +1,4 @@
-"""Workflow and WorkflowNode resources."""
+"""Agent and AgentNode resources."""
 
 from __future__ import annotations
 
@@ -12,12 +12,12 @@ from ragnerock.resources.base import OptionalDateTime, _Resource
 from ragnerock.resources.condition import compile_condition
 
 if TYPE_CHECKING:
-    from ragnerock.resources.operator import Operator
+    from ragnerock.resources.task import Task
     from ragnerock.session import Session
 
 
-class WorkflowSchedule(BaseModel):
-    """A workflow's recurring-run schedule.
+class AgentSchedule(BaseModel):
+    """An agent's recurring-run schedule.
 
     Saving a schedule authorizes recurring unattended runs under the saving
     user's identity. The expression and timezone are validated server-side.
@@ -38,20 +38,22 @@ class WorkflowSchedule(BaseModel):
     lookback: int | None = None
 
 
-class WorkflowNode(_Resource):
-    """One node in a workflow, wrapping an operator with execution configuration.
+class AgentNode(_Resource):
+    """One node in an agent, wrapping a task with execution configuration.
 
-    Nodes are created via :meth:`Workflow.add_node` and wired into a DAG with
+    Nodes are created via :meth:`Agent.add_node` and wired into a DAG with
     the ``>>`` operator (see :meth:`__rshift__` and :meth:`__rrshift__`). The
     ``in_nodes`` and ``out_nodes`` lists record the node's position in the
     graph; ``on_error`` accepts ``"SKIP_NODE"`` (the server default) or
-    ``"FAIL_JOB"``.
+    ``"FAIL_RUN"``. ``target_input_id`` names the file input the node
+    annotates (``None`` means the agent's sole file input), and
+    ``context_input_ids`` lists the inputs wired to it as context.
     """
 
     id: UUID | None = None
-    workflow_id: UUID | None = None
-    operator_id: UUID | None = None
-    operator_name: str | None = None
+    agent_id: UUID | None = None
+    task_id: UUID | None = None
+    task_name: str | None = None
     condition: dict[str, Any] | None = None
     persist: bool = True
     on_error: str = "SKIP_NODE"
@@ -62,14 +64,14 @@ class WorkflowNode(_Resource):
     position_x: int | None = None
     position_y: int | None = None
     position_z: int | None = None
-    target_resource_id: UUID | None = None
-    context_resource_ids: list[UUID] = []
+    target_input_id: UUID | None = None
+    context_input_ids: list[UUID] = []
     include_schedule_context: bool = False
     required_functions: list[str] = []
 
     def __rshift__(
-        self, other: WorkflowNode | list[WorkflowNode]
-    ) -> WorkflowNode | list[WorkflowNode]:
+        self, other: AgentNode | list[AgentNode]
+    ) -> AgentNode | list[AgentNode]:
         """Wire this node as an upstream of ``other``.
 
         ``a >> b`` appends ``b.id`` to ``a.out_nodes`` and ``a.id`` to
@@ -78,38 +80,38 @@ class WorkflowNode(_Resource):
         (``a >> b >> c`` wires ``a→b`` then ``b→c``).
 
         Args:
-            other (WorkflowNode | list[WorkflowNode]): A single downstream
+            other (AgentNode | list[AgentNode]): A single downstream
                 node or a list of downstream nodes (fan-out).
 
         Returns:
-            WorkflowNode | list[WorkflowNode]: ``other`` unchanged, for
+            AgentNode | list[AgentNode]: ``other`` unchanged, for
             chaining.
 
         Raises:
             ValidationError: Either node is not yet committed, or the two
-                nodes belong to different workflows.
+                nodes belong to different agents.
             RuntimeError: Either node has no session back-reference.
-            TypeError: ``other`` is not a :class:`WorkflowNode` or a list of
-                :class:`WorkflowNode`.
+            TypeError: ``other`` is not a :class:`AgentNode` or a list of
+                :class:`AgentNode`.
         """
         if isinstance(other, list):
             for dst in other:
-                if not isinstance(dst, WorkflowNode):
+                if not isinstance(dst, AgentNode):
                     raise TypeError(
-                        "Right-hand side list must contain only WorkflowNode "
+                        "Right-hand side list must contain only AgentNode "
                         f"instances; got {type(dst).__name__}"
                     )
                 _wire(self, dst)
             return other
-        if isinstance(other, WorkflowNode):
+        if isinstance(other, AgentNode):
             _wire(self, other)
             return other
         raise TypeError(
-            "Right-hand side of `>>` must be a WorkflowNode or list of "
-            f"WorkflowNode; got {type(other).__name__}"
+            "Right-hand side of `>>` must be an AgentNode or list of "
+            f"AgentNode; got {type(other).__name__}"
         )
 
-    def __rrshift__(self, other: list[WorkflowNode]) -> WorkflowNode:
+    def __rrshift__(self, other: list[AgentNode]) -> AgentNode:
         """Wire a list of upstream nodes into this node (``[a, b] >> self``).
 
         Python dispatches the reflected operator when the left-hand side is a
@@ -117,33 +119,33 @@ class WorkflowNode(_Resource):
         chain continues.
 
         Args:
-            other (list[WorkflowNode]): Upstream nodes to fan in.
+            other (list[AgentNode]): Upstream nodes to fan in.
 
         Returns:
-            WorkflowNode: ``self``, for chaining.
+            AgentNode: ``self``, for chaining.
 
         Raises:
-            TypeError: ``other`` is not a list of :class:`WorkflowNode`.
+            TypeError: ``other`` is not a list of :class:`AgentNode`.
             ValidationError: Any node is not yet committed, or any node is in
-                a different workflow.
+                a different agent.
             RuntimeError: Any node has no session back-reference.
         """
         if not isinstance(other, list):
             raise TypeError(
-                "Left-hand side of `>>` into a WorkflowNode must be a list; "
+                "Left-hand side of `>>` into an AgentNode must be a list; "
                 f"got {type(other).__name__}"
             )
         for src in other:
-            if not isinstance(src, WorkflowNode):
+            if not isinstance(src, AgentNode):
                 raise TypeError(
-                    "Left-hand side list must contain only WorkflowNode "
+                    "Left-hand side list must contain only AgentNode "
                     f"instances; got {type(src).__name__}"
                 )
             _wire(src, self)
         return self
 
 
-def _wire(src: WorkflowNode, dst: WorkflowNode) -> None:
+def _wire(src: AgentNode, dst: AgentNode) -> None:
     """Record a directed edge ``src → dst`` locally and stage both nodes.
 
     Mutates ``src.out_nodes`` and ``dst.in_nodes`` in place (deduped) and
@@ -152,19 +154,19 @@ def _wire(src: WorkflowNode, dst: WorkflowNode) -> None:
     """
     if src._session is None or dst._session is None:
         raise RuntimeError(
-            "Both workflow nodes must be bound to a session before wiring; "
+            "Both agent nodes must be bound to a session before wiring; "
             "call session.commit() after add_node to assign IDs."
         )
     if src._session is not dst._session:
-        raise ValidationError("Cannot wire workflow nodes from different sessions.")
+        raise ValidationError("Cannot wire agent nodes from different sessions.")
     if src.id is None or dst.id is None:
         raise ValidationError(
-            "Cannot wire workflow nodes that have no id yet; "
+            "Cannot wire agent nodes that have no id yet; "
             "call session.commit() to assign ids before using `>>`."
         )
-    if src.workflow_id != dst.workflow_id:
+    if src.agent_id != dst.agent_id:
         raise ValidationError(
-            "Cannot wire workflow nodes that belong to different workflows."
+            "Cannot wire agent nodes that belong to different agents."
         )
 
     if dst.id not in src.out_nodes:
@@ -176,14 +178,18 @@ def _wire(src: WorkflowNode, dst: WorkflowNode) -> None:
     src._session.update(dst)
 
 
-class Workflow(_Resource):
-    """A DAG of operators to run against documents.
+class Agent(_Resource):
+    """A DAG of tasks to run against documents.
 
-    Workflows do not execute on their own. Build a workflow by calling
-    :meth:`add_node` for each operator and wiring the returned
-    :class:`WorkflowNode` instances with ``>>``, then trigger execution via
+    Agents do not execute on their own. Build an agent by calling
+    :meth:`add_node` for each task and wiring the returned
+    :class:`AgentNode` instances with ``>>``, then trigger execution via
     :meth:`~ragnerock.session.Session.run`, which returns
-    :class:`~ragnerock.resources.job.Job` instances.
+    :class:`~ragnerock.resources.run.Run` instances.
+
+    ``inputs`` and ``outputs`` carry the agent's inputs (where its documents
+    and context come from) and outputs (where its results are delivered) as
+    the server describes them.
     """
 
     id: UUID | None = None
@@ -197,38 +203,38 @@ class Workflow(_Resource):
     created_at: OptionalDateTime = None
     updated_at: OptionalDateTime = None
     execution_order: list[str] = []
-    nodes: list[WorkflowNode] = []
-    resources: list[dict[str, Any]] = []
-    sinks: list[dict[str, Any]] = []
-    schedule: WorkflowSchedule | None = None
+    nodes: list[AgentNode] = []
+    inputs: list[dict[str, Any]] = []
+    outputs: list[dict[str, Any]] = []
+    schedule: AgentSchedule | None = None
     schedule_state: dict[str, Any] | None = None
     schedules_enabled: bool = True
     pending_change_request_count: int = 0
 
     @model_validator(mode="after")
-    def _adopt_nodes(self) -> Workflow:
-        """Stamp this workflow's id onto nested nodes that lack one.
+    def _adopt_nodes(self) -> Agent:
+        """Stamp this agent's id onto nested nodes that lack one.
 
-        The server's workflow payload describes nodes without repeating the
-        parent id, but a node needs ``workflow_id`` to be updated, deleted, or
+        The server's agent payload describes nodes without repeating the
+        parent id, but a node needs ``agent_id`` to be updated, deleted, or
         wired with ``>>``.
 
         Returns:
-            Workflow: ``self``.
+            Agent: ``self``.
         """
         if self.id is not None:
             for node in self.nodes:
-                if node.workflow_id is None:
-                    node.workflow_id = self.id
+                if node.agent_id is None:
+                    node.agent_id = self.id
                 if node._session is None and self._session is not None:
                     node._bind(self._session)
         return self
 
     def _bind(self, session: Session) -> None:
-        """Attach a session to this workflow and to each of its nodes.
+        """Attach a session to this agent and to each of its nodes.
 
         Args:
-            session (Session): The session that produced this workflow.
+            session (Session): The session that produced this agent.
         """
         super()._bind(session)
         for node in self.nodes:
@@ -237,14 +243,14 @@ class Workflow(_Resource):
     def add_node(
         self,
         *,
-        operator: Operator,
+        task: Task,
         condition: dict[str, Any] | None = None,
         persist: bool = True,
         on_error: str = "SKIP_NODE",
         max_retries: int = 0,
         annotations_only: bool = False,
-    ) -> WorkflowNode:
-        """Stage a new :class:`WorkflowNode` wrapping ``operator``.
+    ) -> AgentNode:
+        """Stage a new :class:`AgentNode` wrapping ``task``.
 
         Creates the node locally, appends it to :attr:`nodes`, and stages it
         via ``session.add(node)`` so it is created on the server at the next
@@ -252,48 +258,48 @@ class Workflow(_Resource):
         populated and it can be wired with ``>>``.
 
         Args:
-            operator (Operator): A persisted operator (must have an ``id``).
+            task (Task): A persisted task (must have an ``id``).
             condition (dict[str, Any] | None): Optional MongoDB-style predicate
                 restricting when the node fires. Compiled into the server's
                 condition grammar via
                 :func:`ragnerock.resources.condition.compile_condition`.
             persist (bool): Whether annotations produced here are persisted.
             on_error (str): Error-handling policy: ``"SKIP_NODE"`` (default)
-                or ``"FAIL_JOB"``.
+                or ``"FAIL_RUN"``.
             max_retries (int): Retry count on transient failure.
             annotations_only (bool): Whether the node only emits annotations
                 (no downstream documents or outputs).
 
         Returns:
-            WorkflowNode: The newly staged node.
+            AgentNode: The newly staged node.
 
         Raises:
-            RuntimeError: This workflow has no session back-reference.
-            ValidationError: This workflow has not been committed,
-                ``operator`` has no ``id``, or ``condition`` is malformed.
+            RuntimeError: This agent has no session back-reference.
+            ValidationError: This agent has not been committed,
+                ``task`` has no ``id``, or ``condition`` is malformed.
         """
         if self._session is None:
             raise RuntimeError(
-                "Workflow is not bound to a session; "
-                "call session.add(workflow) and session.commit() first."
+                "Agent is not bound to a session; "
+                "call session.add(agent) and session.commit() first."
             )
         if self.id is None:
             raise ValidationError(
-                "Cannot add a node to an unpersisted workflow; "
+                "Cannot add a node to an unpersisted agent; "
                 "call session.commit() first."
             )
-        if operator.id is None:
+        if task.id is None:
             raise ValidationError(
-                "Cannot add a node for an unpersisted operator; "
-                "call session.commit() after adding the operator."
+                "Cannot add a node for an unpersisted task; "
+                "call session.commit() after adding the task."
             )
 
         compiled = compile_condition(condition) if condition is not None else None
 
-        node = WorkflowNode(
-            workflow_id=self.id,
-            operator_id=operator.id,
-            operator_name=operator.name,
+        node = AgentNode(
+            agent_id=self.id,
+            task_id=task.id,
+            task_name=task.name,
             condition=compiled,
             persist=persist,
             on_error=on_error,

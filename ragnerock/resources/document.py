@@ -1,4 +1,4 @@
-"""Document and DocumentGroup resources."""
+"""Document and DocumentFolder resources."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from uuid import UUID
 from ragnerock.resources.base import OptionalDateTime, _Resource
 
 if TYPE_CHECKING:
-    from ragnerock.resources.job import Job
+    from ragnerock.resources.run import Run
 
 
 class FileType(IntEnum):
@@ -66,7 +66,7 @@ class DocumentStatus(StrEnum):
     """Being parsed, chunked, or embedded."""
 
     READY = "ready"
-    """Fully processed and available to workflows and queries."""
+    """Fully processed and available to agents and queries."""
 
     ERROR = "error"
     """Processing failed."""
@@ -90,7 +90,7 @@ class Document(_Resource):
     id: UUID | None = None
     name: str | None = None
     project_id: UUID | None = None
-    group_id: UUID | None = None
+    document_folder_id: UUID | None = None
     file_path: str | None = None
     source_url: str | None = None
     file_type: FileType | None = None
@@ -124,29 +124,34 @@ class Document(_Resource):
             raise RuntimeError("Document has no id; cannot fetch content.")
         return self._session._engine.client.documents.content(self.id)
 
-    def job(self) -> Job:
-        """Fetch the latest processing job for this document.
+    def latest_run(self) -> Run:
+        """Fetch the latest processing run for this document.
 
         Useful for following ingestion progress (``phase``, stage counters)
         beyond the coarse :attr:`status`.
 
         Returns:
-            Job: The document's most recent job, bound to the session.
+            Run: The document's most recent run, bound to the session.
 
         Raises:
             RuntimeError: If this document has no session back-reference, or
                 has not been committed yet (no ``id``).
-            NotFoundError: If the document has no job.
+            NotFoundError: If the document has no run.
         """
         if self._session is None:
-            raise RuntimeError("Document is not bound to a session; cannot fetch job.")
+            raise RuntimeError("Document is not bound to a session; cannot fetch run.")
         if self.id is None:
-            raise RuntimeError("Document has no id; cannot fetch job.")
-        return self._session._document_job(self.id)
+            raise RuntimeError("Document has no id; cannot fetch run.")
+        return self._session._document_run(self.id)
 
 
-class DocumentGroup(_Resource):
-    """A named collection of documents within a project."""
+class DocumentFolder(_Resource):
+    """A named folder of documents within a project.
+
+    Documents join a folder through their ``document_folder_id``. The
+    folder's own ``folder_id`` is the resource folder it is filed under in
+    the project's folder tree, not another document folder.
+    """
 
     id: UUID | None = None
     name: str | None = None

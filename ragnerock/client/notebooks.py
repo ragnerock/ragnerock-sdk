@@ -38,7 +38,7 @@ class CellType(StrEnum):
     """An annotation SQL query."""
 
     COMPACTION = "compaction"
-    """A summary that replaces every cell above it in the agent's history."""
+    """A summary that replaces every cell above it in the model's history."""
 
 
 class CellRole(StrEnum):
@@ -52,7 +52,7 @@ class CellRole(StrEnum):
 
 
 class ReasoningEffort(StrEnum):
-    """How hard the model reasons on a notebook's agent turns."""
+    """How hard the model reasons on a notebook's turns."""
 
     OFF = "off"
     LOW = "low"
@@ -61,42 +61,43 @@ class ReasoningEffort(StrEnum):
 
 
 class ArtifactType(StrEnum):
-    """Kinds of artifact an agent turn can produce."""
+    """Kinds of artifact a notebook turn can produce."""
 
     SEARCH_RESULTS = "search_results"
     DATAFRAME = "dataframe"
     DOCUMENTS = "documents"
-    OPERATORS = "operators"
+    TASKS = "tasks"
     PLOT = "plot"
     ANALYSIS_REPORT = "analysis_report"
     CITATION = "citation"
     CODE = "code"
-    WORKFLOW_PROPOSAL = "workflow_proposal"
+    AGENT_PROPOSAL = "agent_proposal"
     MEMORY = "memory"
     TODO_LIST = "todo_list"
-    WORKFLOW = "workflow"
+    AGENT = "agent"
+    """The agent a turn applied, and the run it started, if any."""
 
 
 class NotebookResponse(_ApiModel):
-    """A notebook, or a conversation with an agent.
+    """A notebook, or a conversation with a task.
 
     Attributes:
         id (UUID): The notebook.
         project_id (UUID | None): Its project.
         title (str | None): Its title.
-        agent_id (UUID | None): The agent the notebook is a conversation
-            with; ``None`` for the research agent.
-        agent_name (str | None): That agent's display name.
+        task_id (UUID | None): The task the notebook is a conversation
+            with; ``None`` for the research assistant.
+        task_name (str | None): That task's display name.
         assignment_id (UUID | None): The assignment, when the notebook is an
             assignment's transcript.
         visibility (str | None): ``"user"`` for a notebook a person works in,
-            ``"agent_transcript"`` for an assignment's record.
+            ``"task_transcript"`` for an assignment's record.
         ai_config_id (UUID | None): The notebook's own AI config binding;
-            ``None`` uses the agent's or the account default.
+            ``None`` uses the task's or the account default.
         reasoning_effort (str | None): A :class:`ReasoningEffort` value, or
             ``None`` for no reasoning.
         model_source (str | None): Whose setting decides the model:
-            ``"notebook"``, ``"agent"`` or ``"account"``.
+            ``"notebook"``, ``"task"`` or ``"account"``.
     """
 
     id: UUID
@@ -106,8 +107,8 @@ class NotebookResponse(_ApiModel):
     created_by: UUID | None = None
     created_at: UtcDatetime = None
     updated_at: UtcDatetime = None
-    agent_id: UUID | None = None
-    agent_name: str | None = None
+    task_id: UUID | None = None
+    task_name: str | None = None
     assignment_id: UUID | None = None
     visibility: str | None = None
     ai_config_id: UUID | None = None
@@ -253,52 +254,50 @@ def _iter_ndjson_or_text(response: httpx.Response) -> Iterator[dict[str, Any]]:
 
 
 class _NotebooksSection(_Section):
-    """Notebooks and agent conversations."""
+    """Notebooks and conversations with tasks."""
 
     def create(
         self,
         *,
         project_id: UUID,
         title: str,
-        agent_id: UUID | None = None,
+        task_id: UUID | None = None,
     ) -> NotebookResponse:
-        """Create a notebook, optionally bound to an agent.
+        """Create a notebook, optionally bound to a task.
 
-        Calls ``POST /api/notebooks/``. A notebook bound to an agent is a
-        conversation with it: its turns run with the agent's prompt, skills,
+        Calls ``POST /api/notebooks/``. A notebook bound to a task is a
+        conversation with it: its turns run with the task's prompt, skills,
         memory and model binding. To reach *the* conversation between you and
-        an agent, use :meth:`open_conversation` — creating repeatedly leaves
-        several transcripts with the same agent.
+        a task, use :meth:`open_conversation` — creating repeatedly leaves
+        several transcripts with the same task.
 
         Args:
             project_id (UUID): Project to create the notebook in.
             title (str): Notebook title.
-            agent_id (UUID | None): The agent to bind, a live LLM agent in this
-                project. ``None`` is the research agent.
+            task_id (UUID | None): The task to bind, a live LLM task in this
+                project. ``None`` is the research assistant.
 
         Returns:
             NotebookResponse: The created notebook.
         """
-        body = _body(project_id=project_id, title=title, agent_id=agent_id)
+        body = _body(project_id=project_id, title=title, task_id=task_id)
         response = self._parent._request("POST", "/api/notebooks/", json_body=body)
         return NotebookResponse.model_validate(response.json())
 
-    def open_conversation(
-        self, *, project_id: UUID, agent_id: UUID
-    ) -> NotebookResponse:
-        """Resolve your conversation with one agent, creating it the first time.
+    def open_conversation(self, *, project_id: UUID, task_id: UUID) -> NotebookResponse:
+        """Resolve your conversation with one task, creating it the first time.
 
         Calls ``POST /api/notebooks/conversations``. There is one conversation
-        per agent and user, so calling this twice returns the same notebook.
+        per task and user, so calling this twice returns the same notebook.
 
         Args:
             project_id (UUID): The project the conversation lives in.
-            agent_id (UUID): The agent to talk to.
+            task_id (UUID): The task to talk to.
 
         Returns:
             NotebookResponse: The existing or newly created conversation.
         """
-        body = _body(project_id=project_id, agent_id=agent_id)
+        body = _body(project_id=project_id, task_id=task_id)
         response = self._parent._request(
             "POST", "/api/notebooks/conversations", json_body=body
         )
@@ -310,7 +309,7 @@ class _NotebooksSection(_Section):
         project_ids: str | None = None,
         skip: int = 0,
         limit: int = 100,
-        agent_id: UUID | None = None,
+        task_id: UUID | None = None,
         mine: bool = False,
     ) -> NotebookListResponse:
         """List notebooks across the projects you can read.
@@ -322,7 +321,7 @@ class _NotebooksSection(_Section):
                 lists your own notebooks across every project you belong to.
             skip (int): Offset into the result set.
             limit (int): Maximum number of results per page.
-            agent_id (UUID | None): Only conversations bound to this agent.
+            task_id (UUID | None): Only conversations bound to this task.
             mine (bool): Only notebooks you created. Implied when
                 ``project_ids`` is omitted.
 
@@ -337,7 +336,7 @@ class _NotebooksSection(_Section):
                 "skip": skip,
                 "limit": limit,
                 "project_ids": project_ids,
-                "agent_id": str(agent_id) if agent_id is not None else None,
+                "task_id": str(task_id) if task_id is not None else None,
                 "mine": "true" if mine else None,
             },
         )
@@ -419,7 +418,7 @@ class _NotebooksSection(_Section):
 
         Calls ``POST /api/notebooks/{notebook_id}/compaction``. From the next
         turn on, the new cell's summary replaces everything above it in the
-        history the agent sees. The cells themselves stay in the notebook, and
+        history the model sees. The cells themselves stay in the notebook, and
         deleting the compaction cell restores the full history. Runs one model
         call on the notebook's model binding.
 
@@ -464,7 +463,7 @@ class _NotebooksSection(_Section):
         """Add input to a notebook and stream the response.
 
         Calls ``POST /api/notebooks/{notebook_id}/input`` and reads the
-        newline-delimited JSON reply. For a ``message`` cell the agent's turn
+        newline-delimited JSON reply. For a ``message`` cell the model's turn
         is streamed as it runs. The request has no timeout, since a turn can
         take a while.
 
@@ -477,7 +476,7 @@ class _NotebooksSection(_Section):
 
         Yields:
             dict[str, Any]: Each event as decoded JSON: the cells the turn
-            creates, the agent's output, and artifact references. A line that
+            creates, the model's output, and artifact references. A line that
             isn't JSON arrives as ``{"type": "text", "content": line}``.
 
         Raises:
@@ -507,10 +506,10 @@ class _CellsSection(_Section):
         role: str | None = None,
         output: dict[str, Any] | None = None,
     ) -> CellResponse:
-        """Append a cell to a notebook without running an agent turn.
+        """Append a cell to a notebook without running a model turn.
 
         Calls ``POST /api/notebooks/{notebook_id}/cells/``. Use
-        ``client.notebooks.stream_input`` to add a message and have the agent
+        ``client.notebooks.stream_input`` to add a message and have the model
         answer it.
 
         Args:
@@ -585,7 +584,7 @@ class _CellsSection(_Section):
         """Update a cell; omitted fields are left unchanged.
 
         Calls ``PUT /api/notebooks/{notebook_id}/cells/{cell_id}``. Editing an
-        agent-written code cell's source or type makes it yours.
+        model-written code cell's source or type makes it yours.
 
         Args:
             notebook_id (UUID): The cell's notebook.

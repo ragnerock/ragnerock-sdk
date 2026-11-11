@@ -9,7 +9,7 @@ A `Session` is scoped to one project. It supplies seven verbs.
 | `session.get(Type, id=..., name=...)` | immediate | Fetch one resource. Returns `None` if not found. |
 | `session.list(Type, **filters)` | immediate | Return a lazy `PaginatedIterator`. |
 | `session.query(sql)` | immediate | Run a SQL query and return a `QueryResult`. |
-| `session.run(workflow, documents=[...])` | immediate | Kick off a workflow. Returns a `Job`. |
+| `session.run(agent, documents=[...])` | immediate | Start an [agent](agents.md). Returns the first [`Run`](runs.md). |
 | `session.add(obj)` | **staged** | Queue creation. Flush with `commit()`. |
 | `session.update(obj)` | **staged** | Queue update. Flush with `commit()`. |
 | `session.delete(obj)` | **staged** | Queue deletion. Flush with `commit()`. |
@@ -100,15 +100,15 @@ If you want writes to survive, call `commit()` explicitly.
 
 ## run() needs committed resources
 
-`session.run(workflow, documents=[...])` will refuse unpersisted resources. Call `commit()` first.
+`session.run(agent, documents=[...])` will refuse unpersisted resources. Call `commit()` first.
 
 ```python
 doc = Document(file_path="./x.pdf")
 session.add(doc)
-session.run(wf, documents=[doc])   # raises ValidationError — doc has no id
+session.run(my_agent, documents=[doc])   # raises ValidationError — doc has no id
 
 session.commit()
-session.run(wf, documents=[doc])   # OK
+run = session.run(my_agent, documents=[doc])   # OK; returns a Run
 ```
 
 ## Pagination

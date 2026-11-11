@@ -1,19 +1,19 @@
-# Agent · rank 60 · project-scoped · foldered.
+# Task · rank 60 · project-scoped · foldered.
 # `schema` references the Schema above (must exist in the same project).
-# `template` (an OperatorTemplate name) is optional and omitted here — set it only
+# `template` (a TaskTemplate name) is optional and omitted here — set it only
 # if a matching template exists, or apply will fail resolving the reference.
-# `model` picks the provider this agent runs on, by config name — omit the whole
+# `model` picks the provider this task runs on, by config name — omit the whole
 # block to use the account default. It never carries credentials.
-# `skills` references Skills (see `55-skill.yaml`) by name — LLM agents only;
+# `skills` references Skills (see `55-skill.yaml`) by name — LLM tasks only;
 # every listed skill must exist in the project, and an absent list clears the
-# agent's selection (a manifest is the whole desired state).
-apiVersion: ragnerock.com/v1alpha1
-kind: Agent
+# task's selection (a manifest is the whole desired state).
+apiVersion: ragnerock.com/v1alpha2
+kind: Task
 metadata:
   name: earnings_sentiment
   annotations:
     ragnerock.com/project: alpha_research
-    ragnerock.com/folder: agents
+    ragnerock.com/folder: tasks
 spec:
   description: "Extracts sentiment from earnings calls"
   generationPrompt: "Classify the sentiment of this earnings call excerpt."
@@ -28,26 +28,26 @@ spec:
   skills:
     - earnings_call_tone
 ---
-# The same kind with `operatorKind: code` declares a *code* agent: instead of a
-# prompt it carries a Python snippet, run in a sandbox. The
-# snippet must define a top-level `main()`, and every parameter it declares has
-# to be suppliable: `content`/`metadata` are reserved, and anything else must
-# name an upstream node's agent or a workflow resource (an apply warns when one
-# cannot resolve). `generationPrompt` and `model` are LLM-only and are rejected
+# The same kind with `taskKind: code` declares a *code* task: instead of a
+# prompt it carries a Python snippet, run in a sandbox. The snippet must define
+# a top-level `main()`, and every parameter it declares has to be suppliable:
+# `content`/`metadata` are reserved, and anything else must name the task of an
+# upstream node or one of the agent's inputs (an apply warns when one cannot
+# resolve). `generationPrompt` and `model` are LLM-only and are rejected
 # here — the kind is explicit, never guessed from what is filled in.
 #
-# An apply sends this code through the same security review the agent editor
+# An apply sends this code through the same security review the task editor
 # runs. Never put credentials in `codeSource`; use a Secret.
-apiVersion: ragnerock.com/v1alpha1
-kind: Agent
+apiVersion: ragnerock.com/v1alpha2
+kind: Task
 metadata:
   name: extract_tickers
   annotations:
     ragnerock.com/project: alpha_research
-    ragnerock.com/folder: agents
+    ragnerock.com/folder: tasks
 spec:
   description: "Pulls ticker-shaped tokens out of a passage — no LLM call"
-  operatorKind: code
+  taskKind: code
   chunkType: paragraph
   schema: ticker_mentions
   codeSource: |

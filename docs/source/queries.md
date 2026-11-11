@@ -1,16 +1,17 @@
 # Queries
 
-`session.query(sql)` runs SQL over annotations produced by your operators.
+`session.query(sql)` runs SQL over annotations produced by your [tasks](tasks.md).
 
 ## Tables available
 
 | Table | What it holds |
 |---|---|
-| `documents` / `document` | Document metadata (id, name, file_type, created_at, …). |
+| `documents` / `document` | Document metadata (id, name, file_type, document_folder_id, created_at, …). |
 | `chunks` / `documentchunk` | Chunk content and offsets. |
-| *`{operator_name}`* | One row per annotation produced by that operator, columns matching the operator's JSON schema. |
+| *`{task_name}`* | One row per annotation produced by that task, columns matching the task's JSON schema. |
+| `_reviews` | Review decisions on annotations; `task_id` names the task whose output was reviewed. |
 
-So an operator named `invoice_extract` with a schema `{"total": number, "vendor": string}` becomes a queryable table:
+So a task named `invoice_extract` with a schema `{"total": number, "vendor": string}` becomes a queryable table:
 
 ```sql
 SELECT vendor, SUM(total) AS total_owed
@@ -30,6 +31,8 @@ result.to_dict()          # [{'vendor': 'Acme', 'total': 1234.56}, ...]
 result.query_time_ms      # int or None
 result.truncated          # True if more rows matched than `limit` returned
 ```
+
+Task tables (and `_reviews`) also carry a hidden `provenance_id` column: the run provenance behind each annotation, recording what the producing run pinned when it was created. It isn't returned by `SELECT *`, but you can select or filter on it by name. Before the 3.0 rename this column was called `run_id`; see [Migrating to 3.0](migration.md#sql-names) for the other SQL names that changed.
 
 Pass `include_provenance=True` to also get, for each row, the documents, chunks, or annotations it was derived from, on `result.provenance`:
 

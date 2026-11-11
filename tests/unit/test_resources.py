@@ -4,20 +4,22 @@ from __future__ import annotations
 
 import pytest
 
+import ragnerock
 from ragnerock import (
+    Agent,
+    AgentNode,
     Annotation,
     Chunk,
     ChunkType,
     Document,
-    DocumentGroup,
+    DocumentFolder,
     FileType,
-    Job,
-    JobStatus,
-    JobType,
-    Operator,
     Page,
-    Workflow,
-    WorkflowNode,
+    Run,
+    RunKind,
+    RunStatus,
+    Task,
+    TaskKind,
 )
 
 
@@ -26,7 +28,7 @@ class TestDefaults:
 
     @pytest.mark.parametrize(
         "cls",
-        [Document, DocumentGroup, Chunk, Page, Operator, Workflow, Job],
+        [Document, DocumentFolder, Chunk, Page, Task, Agent, Run],
     )
     def test_fresh_resource_has_no_id(self, cls):
         assert cls().id is None
@@ -58,12 +60,38 @@ class TestEnums:
         assert ChunkType.SHEET.accepts_input_columns
         assert not ChunkType.PARAGRAPH.accepts_input_columns
 
-    def test_job_status_has_terminal_values(self):
-        assert JobStatus.SUCCEEDED == 3
-        assert JobStatus.FAILED == 4
+    def test_run_status_has_terminal_values(self):
+        assert RunStatus.SUCCEEDED == 3
+        assert RunStatus.FAILED == 4
 
-    def test_job_type_exists(self):
-        assert JobType.MANUAL in JobType
+    def test_run_kind_values_match_server(self):
+        assert RunKind.AUTOMATIC == 1
+        assert RunKind.MANUAL == 2
+
+    def test_task_kind_values(self):
+        assert {k.value for k in TaskKind} == {"LLM", "CODE", "MANUAL", "OUTPUT"}
+
+
+class TestRenamedExports:
+    """3.0 is a clean break: the pre-rename names are not exported."""
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "DocumentGroup",
+            "Job",
+            "JobStatus",
+            "JobType",
+            "Operator",
+            "OperatorKind",
+            "Workflow",
+            "WorkflowNode",
+            "WorkflowSchedule",
+        ],
+    )
+    def test_old_name_is_gone(self, name):
+        assert not hasattr(ragnerock, name)
+        assert name not in ragnerock.__all__
 
 
 class TestPydanticCoercion:
@@ -108,10 +136,19 @@ class TestAnnotationIdAlias:
         assert str(ann.id) == root
 
 
-class TestWorkflowNodeDefaults:
+class TestAgentNodeDefaults:
     def test_node_has_empty_in_out_lists(self):
-        node = WorkflowNode()
+        node = AgentNode()
         assert node.in_nodes == []
         assert node.out_nodes == []
         assert node.persist is True
         assert node.on_error == "SKIP_NODE"
+        assert node.target_input_id is None
+        assert node.context_input_ids == []
+
+    def test_agent_has_inputs_and_outputs(self):
+        agent = Agent()
+        assert agent.inputs == []
+        assert agent.outputs == []
+        assert "resources" not in Agent.model_fields
+        assert "sinks" not in Agent.model_fields

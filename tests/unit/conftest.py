@@ -142,7 +142,7 @@ class _Payloads:
             "id": "00000000-0000-0000-0000-000000000101",
             "project_id": str(TEST_PROJECT_ID),
             "name": "sample.pdf",
-            "group_id": None,
+            "document_folder_id": None,
             "file_type": 3,
             "source_url": None,
             "storage_path": "projects/demo/sample.pdf",
@@ -156,11 +156,12 @@ class _Payloads:
         base.update(overrides)
         return base
 
-    def document_group(self, **overrides):
+    def document_folder(self, **overrides):
         base = {
             "id": "00000000-0000-0000-0000-000000000201",
             "project_id": str(TEST_PROJECT_ID),
             "name": "Q1 contracts",
+            "folder_id": None,
             "created_at": "2026-04-16T12:00:00Z",
         }
         base.update(overrides)
@@ -194,8 +195,8 @@ class _Payloads:
     def annotation(self, **overrides):
         base = {
             "root_id": "00000000-0000-0000-0000-000000000501",
-            "operator_id": "00000000-0000-0000-0000-000000000601",
-            "operator_name": "invoice_extract",
+            "task_id": "00000000-0000-0000-0000-000000000601",
+            "task_name": "invoice_extract",
             "document_id": "00000000-0000-0000-0000-000000000101",
             "chunk_id": None,
             "page_id": None,
@@ -208,7 +209,7 @@ class _Payloads:
         base.update(overrides)
         return base
 
-    def operator(self, **overrides):
+    def task(self, **overrides):
         base = {
             "id": "00000000-0000-0000-0000-000000000601",
             "project_id": str(TEST_PROJECT_ID),
@@ -222,14 +223,14 @@ class _Payloads:
             "chunk_type": 0,
             "batch_size": None,
             "multi_annotation": False,
-            "operator_kind": "LLM",
+            "task_kind": "LLM",
             "created_at": "2026-04-16T12:00:00Z",
             "updated_at": "2026-04-16T12:00:00Z",
         }
         base.update(overrides)
         return base
 
-    def workflow(self, **overrides):
+    def agent(self, **overrides):
         base = {
             "id": "00000000-0000-0000-0000-000000000701",
             "project_id": str(TEST_PROJECT_ID),
@@ -242,16 +243,18 @@ class _Payloads:
             "auto_run_on_upload": False,
             "execution_order": [],
             "nodes": [],
+            "inputs": [],
+            "outputs": [],
         }
         base.update(overrides)
         return base
 
-    def workflow_node(self, **overrides):
+    def agent_node(self, **overrides):
         base = {
             "id": "00000000-0000-0000-0000-000000000702",
-            "workflow_id": "00000000-0000-0000-0000-000000000701",
-            "operator_id": "00000000-0000-0000-0000-000000000601",
-            "operator_name": "invoice_extract",
+            "agent_id": "00000000-0000-0000-0000-000000000701",
+            "task_id": "00000000-0000-0000-0000-000000000601",
+            "task_name": "invoice_extract",
             "condition": None,
             "persist": True,
             "on_error": "SKIP_NODE",
@@ -263,14 +266,14 @@ class _Payloads:
         base.update(overrides)
         return base
 
-    def workflow_node_info(self, **overrides):
-        """A node as embedded in a workflow payload (no ``workflow_id``)."""
+    def agent_node_info(self, **overrides):
+        """A node as embedded in an agent payload (no ``agent_id``)."""
         base = {
             "id": "00000000-0000-0000-0000-000000000702",
-            "operator_id": "00000000-0000-0000-0000-000000000601",
-            "operator_name": "invoice_extract",
-            "operator_jsonschema": {},
-            "operator_chunk_type": 0,
+            "task_id": "00000000-0000-0000-0000-000000000601",
+            "task_name": "invoice_extract",
+            "task_jsonschema": {},
+            "task_chunk_type": 0,
             "condition": None,
             "persist": True,
             "on_error": "SKIP_NODE",
@@ -285,7 +288,7 @@ class _Payloads:
         base.update(overrides)
         return base
 
-    def job(self, **overrides):
+    def run(self, **overrides):
         base = {
             "id": "00000000-0000-0000-0000-000000000801",
             "document_id": "00000000-0000-0000-0000-000000000101",
@@ -293,7 +296,7 @@ class _Payloads:
             "end_time": None,
             "status": 2,
             "status_message": None,
-            "job_type": 2,
+            "kind": 2,
             "should_parse": True,
             "capture_execution_log": False,
             "n_tokens": None,
@@ -301,6 +304,7 @@ class _Payloads:
             "n_mb": None,
             "execution_trace": {"nodes": [], "errors": [], "total_output_tokens": 0},
             "phase": None,
+            "agent_ids": [],
         }
         base.update(overrides)
         return base

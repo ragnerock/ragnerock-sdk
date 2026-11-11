@@ -1,9 +1,11 @@
 """Apply Ragnerock GitOps manifests: configuration as code.
 
-A GitOps manifest is a YAML document in the ``ragnerock.com/`` API group —
-``Secret``, ``AIProviderConfig``, ``Schema``, ``Agent``, ``Workflow``,
-``Endpoint``, ``IngestConfig``, and so on. Apply uploads a whole set in one
-request; the server upserts each object by name and reports what changed.
+A GitOps manifest is a YAML document in the ``ragnerock.com/`` API group,
+currently ``apiVersion: ragnerock.com/v1alpha2`` — ``Secret``,
+``AIProviderConfig``, ``Schema``, ``Task``, ``Agent``, ``Endpoint``,
+``IngestConfig``, and so on. Apply uploads a whole set in one request; the
+server upserts each object by name and reports what changed. Documents still
+on the retired ``v1alpha1`` are refused before anything is uploaded.
 
 ``Secret`` values are resolved on the client (inline, environment variables,
 or a cloud secret manager) and sealed to the instance's public key before
@@ -39,6 +41,8 @@ from ragnerock.gitops.apply import (
 )
 from ragnerock.gitops.discovery import (
     API_GROUP,
+    API_VERSION,
+    RETIRED_API_VERSIONS,
     ManifestSet,
     expand_sources,
     is_ragnerock_document,
@@ -64,7 +68,9 @@ from ragnerock.gitops.secrets import (
 
 __all__ = [
     "API_GROUP",
+    "API_VERSION",
     "REDACTED",
+    "RETIRED_API_VERSIONS",
     "CloudProvider",
     "CloudSecretFetcher",
     "GitOpsApplyResponse",

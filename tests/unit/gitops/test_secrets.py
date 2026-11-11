@@ -40,7 +40,7 @@ from ragnerock.gitops.secrets import (
     write_inline,
     write_sealed,
 )
-from tests.unit.gitops.helpers import agent_doc, secret_doc
+from tests.unit.gitops.helpers import task_doc, secret_doc
 
 _INLINE = SecretSource(type=SecretSourceType.INLINE)
 
@@ -313,7 +313,7 @@ class TestResolution:
                 ref={"vaultUrl": "https://v.vault.azure.net", "secret": "s"},
             ),
         )
-        # Resolution reads the spec; rewriting it is the write step's job.
+        # Resolution reads the spec; rewriting it is left to the write step.
         assert set(spec) == set(AUTHORED_SOURCE_FIELDS)
 
     def test_reads_os_environ_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -484,7 +484,7 @@ def test_elided_values_never_reach_the_output(writer: Any) -> None:
 def test_only_secret_documents_are_rewritten() -> None:
     docs = [
         secret_doc({"stringData": {"a": "v"}}),
-        agent_doc(),
+        task_doc(),
         {"kind": "Secret", "spec": None},
     ]
     assert [name for name, _ in secret_specs(docs)] == ["creds"]
@@ -499,7 +499,7 @@ def test_resolve_secrets_counts_sources() -> None:
                 "fromAwsSecretsManager": {"c": {"secretId": "s"}},
             }
         ),
-        agent_doc(),
+        task_doc(),
     ]
     resolved = resolve_secrets(docs, env={"V": "x"}, fetcher=_stub_fetcher())
     assert resolved.key_count == 3

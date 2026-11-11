@@ -14,17 +14,17 @@ from ragnerock.timestamps import UtcDatetime
 class AnnotationResponse(_ApiModel):
     """Response payload representing a single annotation.
 
-    ``root_id`` and ``operator_id`` are optional because the server omits them
-    from the narrow-scope list endpoints (list by document + operator; only
+    ``root_id`` and ``task_id`` are optional because the server omits them
+    from the narrow-scope list endpoints (list by document + task; only
     the by-name form returns ``root_id``). The
-    compact list endpoints (by document, chunk, or operator) carry identity,
-    ``operator_name``, and ``confidence_score`` but no ``data``; fetch the
+    compact list endpoints (by document, chunk, or task) carry identity,
+    ``task_name``, and ``confidence_score`` but no ``data``; fetch the
     annotation by ``root_id``, or use a hydrated listing, for the values.
     """
 
     root_id: UUID | None = None
-    operator_id: UUID | None = None
-    operator_name: str | None = None
+    task_id: UUID | None = None
+    task_name: str | None = None
     schema_id: UUID | None = None
     data: dict[str, Any] | None = None
     document_id: UUID | None = None
@@ -53,11 +53,11 @@ class AnnotationListResponse(_ApiModel):
 class AnnotationRevisionResponse(_ApiModel):
     """One revision in an annotation's edit history.
 
-    ``source`` says where the revision came from: ``"operator"`` (the
+    ``source`` says where the revision came from: ``"task"`` (the
     original machine output), ``"user"`` (a user-created original),
     ``"legacy"`` (the pre-edit state of an annotation edited before history
     was kept, origin unknown), ``"user_edit"``, ``"restore"``, or
-    ``"assignment"`` (an agent delivering an assignment's output).
+    ``"assignment"`` (a task delivering an assignment's output).
     ``restored_from_index`` is set only for ``"restore"`` revisions.
     """
 
@@ -82,14 +82,14 @@ class AnnotationRevisionListResponse(_ApiModel):
 
 
 class DocumentWithAnnotations(_ApiModel):
-    """A document paired with how many annotations an operator made on it."""
+    """A document paired with how many annotations a task made on it."""
 
     document: DocumentResponse
     annotation_count: int = 0
 
 
 class DocumentsWithAnnotationsListResponse(_ApiModel):
-    """Paginated list of documents carrying an operator's annotations."""
+    """Paginated list of documents carrying a task's annotations."""
 
     documents: list[DocumentWithAnnotations]
     total: int
@@ -136,7 +136,7 @@ class _AnnotationsSection(_Section):
     def create(
         self,
         *,
-        operator_id: UUID,
+        task_id: UUID,
         data: dict[str, Any],
         document_id: UUID | None = None,
         chunk_id: UUID | None = None,
@@ -150,13 +150,13 @@ class _AnnotationsSection(_Section):
 
         Calls ``POST /api/annotations/``. Callers supply one of
         ``document_id``, ``chunk_id``, or ``page_id`` — typically the one
-        that matches the operator's ``chunk_type``. Annotations on tabular
+        that matches the task's ``chunk_type``. Annotations on tabular
         data may also name the ``sheet_id`` or ``row_id`` they describe.
 
         Args:
-            operator_id (UUID): Operator the annotation belongs to. Its JSON schema
+            task_id (UUID): Task the annotation belongs to. Its JSON schema
                 validates ``data`` server-side.
-            data (dict[str, Any]): Annotation payload matching the operator's schema.
+            data (dict[str, Any]): Annotation payload matching the task's schema.
             document_id (UUID | None): Document this annotation is about.
             chunk_id (UUID | None): Chunk this annotation is about.
             page_id (UUID | None): Page this annotation is about.
@@ -170,11 +170,11 @@ class _AnnotationsSection(_Section):
             AnnotationResponse: The newly created annotation response.
 
         Raises:
-            ValidationError: If ``data`` does not match the operator's schema
+            ValidationError: If ``data`` does not match the task's schema
                 or the target is missing or ambiguous.
         """
         body = _body(
-            operator_id=operator_id,
+            task_id=task_id,
             data=data,
             document_id=document_id,
             chunk_id=chunk_id,
@@ -198,7 +198,7 @@ class _AnnotationsSection(_Section):
 
         Calls ``PUT /api/annotations/{root_id}``. The JSON body is the new
         ``data`` payload; ``confidence_score`` rides as a query parameter
-        when provided. Attachment target (document/chunk/page) and operator
+        when provided. Attachment target (document/chunk/page) and task
         are not editable — create a fresh annotation if those need to change.
         Each values-changing edit is recorded as a revision; see
         :meth:`list_revisions`.
@@ -206,7 +206,7 @@ class _AnnotationsSection(_Section):
         Args:
             root_id (UUID): Annotation to update.
             data (dict[str, Any]): Replacement payload. Must still validate against the
-                operator's schema.
+                task's schema.
             confidence_score (float | None): Optional replacement confidence.
 
         Returns:
@@ -288,7 +288,7 @@ class _AnnotationsSection(_Section):
         self,
         document_id: UUID,
         *,
-        operator_name: str | None = None,
+        task_name: str | None = None,
         skip: int = 0,
         limit: int = 100,
     ) -> AnnotationListResponse:
@@ -300,7 +300,7 @@ class _AnnotationsSection(_Section):
 
         Args:
             document_id (UUID): Document to list.
-            operator_name (str | None): Restrict to annotations produced by an operator
+            task_name (str | None): Restrict to annotations produced by a task
                 with this exact name.
             skip (int): Offset into the result set.
             limit (int): Maximum number of results per page.
@@ -312,7 +312,7 @@ class _AnnotationsSection(_Section):
             "GET",
             f"/api/annotations/document/{document_id}",
             params={
-                "operator_name": operator_name,
+                "task_name": task_name,
                 "skip": skip,
                 "limit": limit,
             },
@@ -323,7 +323,7 @@ class _AnnotationsSection(_Section):
         self,
         chunk_id: UUID,
         *,
-        operator_name: str | None = None,
+        task_name: str | None = None,
         skip: int = 0,
         limit: int = 100,
     ) -> AnnotationListResponse:
@@ -333,7 +333,7 @@ class _AnnotationsSection(_Section):
 
         Args:
             chunk_id (UUID): Chunk to list.
-            operator_name (str | None): Restrict to annotations produced by an operator
+            task_name (str | None): Restrict to annotations produced by a task
                 with this exact name.
             skip (int): Offset into the result set.
             limit (int): Maximum number of results per page.
@@ -345,24 +345,24 @@ class _AnnotationsSection(_Section):
             "GET",
             f"/api/annotations/chunk/{chunk_id}",
             params={
-                "operator_name": operator_name,
+                "task_name": task_name,
                 "skip": skip,
                 "limit": limit,
             },
         )
         return AnnotationListResponse.model_validate(response.json())
 
-    def list_by_operator(
-        self, operator_id: UUID, *, skip: int = 0, limit: int = 100
+    def list_by_task(
+        self, task_id: UUID, *, skip: int = 0, limit: int = 100
     ) -> AnnotationListResponse:
-        """List every annotation produced by a given operator.
+        """List every annotation produced by a given task.
 
-        Calls ``GET /api/annotations/operator/{operator_id}``. Results span
-        all documents the operator has run against. For operator metadata
-        joined into each row, use :meth:`list_hydrated_by_operator` instead.
+        Calls ``GET /api/annotations/task/{task_id}``. Results span
+        all documents the task has run against. For task metadata
+        joined into each row, use :meth:`list_hydrated_by_task` instead.
 
         Args:
-            operator_id (UUID): Operator to list.
+            task_id (UUID): Task to list.
             skip (int): Offset into the result set.
             limit (int): Maximum number of results per page.
 
@@ -371,22 +371,22 @@ class _AnnotationsSection(_Section):
         """
         response = self._parent._request(
             "GET",
-            f"/api/annotations/operator/{operator_id}",
+            f"/api/annotations/task/{task_id}",
             params={"skip": skip, "limit": limit},
         )
         return AnnotationListResponse.model_validate(response.json())
 
-    def list_hydrated_by_operator(
-        self, operator_id: UUID, *, skip: int = 0, limit: int = 100
+    def list_hydrated_by_task(
+        self, task_id: UUID, *, skip: int = 0, limit: int = 100
     ) -> AnnotationListResponse:
-        """Like :meth:`list_by_operator`, but with operator metadata joined in.
+        """Like :meth:`list_by_task`, but with task metadata joined in.
 
-        Calls ``GET /api/annotations/operator/{operator_id}/hydrated``. Each
-        row carries ``operator_name`` and any other joined fields the server
+        Calls ``GET /api/annotations/task/{task_id}/hydrated``. Each
+        row carries ``task_name`` and any other joined fields the server
         attaches. Costs more server-side than the plain list.
 
         Args:
-            operator_id (UUID): Operator to list.
+            task_id (UUID): Task to list.
             skip (int): Offset into the result set.
             limit (int): Maximum number of results per page.
 
@@ -395,7 +395,7 @@ class _AnnotationsSection(_Section):
         """
         response = self._parent._request(
             "GET",
-            f"/api/annotations/operator/{operator_id}/hydrated",
+            f"/api/annotations/task/{task_id}/hydrated",
             params={"skip": skip, "limit": limit},
         )
         return AnnotationListResponse.model_validate(response.json())
@@ -414,7 +414,7 @@ class _AnnotationsSection(_Section):
         """List the annotations conforming to an annotation schema, with their values.
 
         Calls ``GET /api/annotations/schema/{schema_id}/hydrated``. Works for
-        any schema, whether an operator's output schema or one an agent
+        any schema, whether a task's output schema or one a task
         created for its memory.
 
         ``edited_only`` matches every annotation that has been edited,
@@ -446,14 +446,14 @@ class _AnnotationsSection(_Section):
         return AnnotationListResponse.model_validate(response.json())
 
     def list_documents_with_schema_annotations(
-        self, operator_id: UUID, *, skip: int = 0, limit: int = 100
+        self, task_id: UUID, *, skip: int = 0, limit: int = 100
     ) -> DocumentsWithAnnotationsListResponse:
-        """List the documents an operator has annotated, with annotation counts.
+        """List the documents a task has annotated, with annotation counts.
 
-        Calls ``GET /api/annotations/operator/{operator_id}/documents``.
+        Calls ``GET /api/annotations/task/{task_id}/documents``.
 
         Args:
-            operator_id (UUID): Operator whose documents to list.
+            task_id (UUID): Task whose documents to list.
             skip (int): Offset into the result set.
             limit (int): Maximum number of results per page.
 
@@ -463,20 +463,20 @@ class _AnnotationsSection(_Section):
         """
         response = self._parent._request(
             "GET",
-            f"/api/annotations/operator/{operator_id}/documents",
+            f"/api/annotations/task/{task_id}/documents",
             params={"skip": skip, "limit": limit},
         )
         return DocumentsWithAnnotationsListResponse.model_validate(response.json())
 
     def list_chunks_with_schema_annotations(
-        self, operator_id: UUID, *, skip: int = 0, limit: int = 100
+        self, task_id: UUID, *, skip: int = 0, limit: int = 100
     ) -> AnnotationListResponse:
-        """List an operator's chunk-level annotations.
+        """List a task's chunk-level annotations.
 
-        Calls ``GET /api/annotations/operator/{operator_id}/chunks``.
+        Calls ``GET /api/annotations/task/{task_id}/chunks``.
 
         Args:
-            operator_id (UUID): Operator whose chunk-level annotations to list.
+            task_id (UUID): Task whose chunk-level annotations to list.
             skip (int): Offset into the result set.
             limit (int): Maximum number of results per page.
 
@@ -486,31 +486,31 @@ class _AnnotationsSection(_Section):
         """
         response = self._parent._request(
             "GET",
-            f"/api/annotations/operator/{operator_id}/chunks",
+            f"/api/annotations/task/{task_id}/chunks",
             params={"skip": skip, "limit": limit},
         )
         return AnnotationListResponse.model_validate(response.json())
 
-    def list_by_document_and_operator_id(
+    def list_by_document_and_task_id(
         self,
         document_id: UUID,
-        operator_id: UUID,
+        task_id: UUID,
         *,
         skip: int = 0,
         limit: int = 100,
     ) -> AnnotationListResponse:
-        """List annotations from a specific operator on a specific document.
+        """List annotations from a specific task on a specific document.
 
         Calls
-        ``GET /api/annotations/document/{document_id}/operator/{operator_id}``.
+        ``GET /api/annotations/document/{document_id}/task/{task_id}``.
         The narrow-scope form of :meth:`list_by_document` when you already
-        have the operator's id. Items carry only ``chunk_id`` and ``data``,
+        have the task's id. Items carry only ``chunk_id`` and ``data``,
         not ``root_id``; to update or delete what you list, use
-        :meth:`list_by_document_and_operator_name`, which includes it.
+        :meth:`list_by_document_and_task_name`, which includes it.
 
         Args:
             document_id (UUID): Document to scope to.
-            operator_id (UUID): Operator to scope to.
+            task_id (UUID): Task to scope to.
             skip (int): Offset into the result set.
             limit (int): Maximum number of results per page.
 
@@ -519,29 +519,29 @@ class _AnnotationsSection(_Section):
         """
         response = self._parent._request(
             "GET",
-            f"/api/annotations/document/{document_id}/operator/{operator_id}",
+            f"/api/annotations/document/{document_id}/task/{task_id}",
             params={"skip": skip, "limit": limit},
         )
         return AnnotationListResponse.model_validate(response.json())
 
-    def list_by_document_and_operator_name(
+    def list_by_document_and_task_name(
         self,
         document_id: UUID,
-        operator_name: str,
+        task_name: str,
         *,
         skip: int = 0,
         limit: int = 100,
     ) -> AnnotationListResponse:
-        """Like :meth:`list_by_document_and_operator_id`, keyed by operator name.
+        """Like :meth:`list_by_document_and_task_id`, keyed by task name.
 
         Calls
-        ``GET /api/annotations/document/{document_id}/operator-name/{operator_name}``.
+        ``GET /api/annotations/document/{document_id}/task-name/{task_name}``.
         Use this when you want to avoid a separate lookup to resolve the
-        operator's id.
+        task's id.
 
         Args:
             document_id (UUID): Document to scope to.
-            operator_name (str): Exact operator name to scope to.
+            task_name (str): Exact task name to scope to.
             skip (int): Offset into the result set.
             limit (int): Maximum number of results per page.
 
@@ -550,7 +550,7 @@ class _AnnotationsSection(_Section):
         """
         response = self._parent._request(
             "GET",
-            f"/api/annotations/document/{document_id}/operator-name/{operator_name}",
+            f"/api/annotations/document/{document_id}/task-name/{task_name}",
             params={"skip": skip, "limit": limit},
         )
         return AnnotationListResponse.model_validate(response.json())
@@ -559,7 +559,7 @@ class _AnnotationsSection(_Section):
         self,
         document_id: UUID,
         *,
-        operator_name: str | None = None,
+        task_name: str | None = None,
         skip: int = 0,
         limit: int = 100,
     ) -> ChunkWithAnnotationDataListResponse:
@@ -570,8 +570,8 @@ class _AnnotationsSection(_Section):
 
         Args:
             document_id (UUID): Document whose chunks to list.
-            operator_name (str | None): Restrict to annotations produced by an
-                operator with this exact name.
+            task_name (str | None): Restrict to annotations produced by a
+                task with this exact name.
             skip (int): Offset into the result set.
             limit (int): Maximum number of results per page.
 
@@ -582,6 +582,6 @@ class _AnnotationsSection(_Section):
         response = self._parent._request(
             "GET",
             f"/api/annotations/document/{document_id}/chunks-with-annotations",
-            params={"operator_name": operator_name, "skip": skip, "limit": limit},
+            params={"task_name": task_name, "skip": skip, "limit": limit},
         )
         return ChunkWithAnnotationDataListResponse.model_validate(response.json())

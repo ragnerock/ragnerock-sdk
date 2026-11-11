@@ -1,4 +1,4 @@
-"""Agent tool endpoints (``/api/agent-tools/...``)."""
+"""Tool endpoints (``/api/tools/...``)."""
 
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ the client default.
 """
 
 
-class AgentToolKind(StrEnum):
-    """The kinds of agent tool."""
+class ToolKind(StrEnum):
+    """The kinds of tool."""
 
     SYSTEM = "system"
     """A built-in tool, present in every project. Only its switches can change."""
@@ -80,7 +80,7 @@ class McpOAuthStartOutcome(StrEnum):
     """Register a client with the provider, then start again with its id."""
 
 
-class AgentToolFunction(_ApiModel):
+class ToolFunction(_ApiModel):
     """One LLM-callable function a tool exposes.
 
     Attributes:
@@ -89,7 +89,7 @@ class AgentToolFunction(_ApiModel):
         description (str | None): What the model is told the function does.
         source (str | None): ``"system"``, ``"mcp_discovered"``, or
             ``"rest_route"``.
-        surfaces (list[str]): Where it can run: ``"notebook"``, ``"workflow"``.
+        surfaces (list[str]): Where it can run: ``"notebook"``, ``"task"``.
         read_only_hint (bool | None): The MCP server's own read-only hint.
         destructive_hint (bool | None): The MCP server's own destructive hint.
         warnings (list[str]): Problems noticed when the function was read.
@@ -177,25 +177,27 @@ class RestToolConfigResponse(_ApiModel):
     routes: list[dict[str, Any]] = []
 
 
-class AgentToolResponse(_ApiModel):
-    """An agent tool: a built-in, MCP, or REST entry in a project's tool list.
+class ToolResponse(_ApiModel):
+    """A tool: a built-in, MCP, or REST entry in a project's tool list.
 
     Attributes:
         id (UUID): The tool's id.
         project_id (UUID | None): Owning project.
         skill_id (UUID | None): The skill that owns the tool, or ``None`` for a
             shared project tool.
-        kind (str | None): An :class:`AgentToolKind` value.
+        kind (str | None): An :class:`ToolKind` value.
         name (str): Display name.
         slug (str | None): Immutable id and function-name prefix.
         description (str | None): What the tool is for.
         is_available (bool | None): Project-level master switch.
-        notebook_enabled (bool | None): Whether the notebook agent may use it.
+        notebook_enabled (bool | None): Whether notebooks may use it.
+        task_enabled (bool | None): Whether tasks may be given it. Always
+            ``True`` on a skill's tool, which follows its skill.
         system_key (str | None): The built-in tool's key; ``None`` otherwise.
-        functions (list[AgentToolFunction]): The functions the tool exposes.
+        functions (list[ToolFunction]): The functions the tool exposes.
         mcp (McpToolConfigResponse | None): Configuration, for an MCP tool.
         rest (RestToolConfigResponse | None): Configuration, for a REST tool.
-        operator_count (int | None): How many agents select the tool.
+        task_count (int | None): How many tasks select the tool.
         last_error (str | None): The last discovery failure, in plain language.
         unavailable_reason (str | None): Why a listed tool still cannot run.
     """
@@ -209,50 +211,51 @@ class AgentToolResponse(_ApiModel):
     description: str | None = None
     is_available: bool | None = None
     notebook_enabled: bool | None = None
+    task_enabled: bool | None = None
     system_key: str | None = None
-    functions: list[AgentToolFunction] = []
+    functions: list[ToolFunction] = []
     mcp: McpToolConfigResponse | None = None
     rest: RestToolConfigResponse | None = None
-    operator_count: int | None = None
+    task_count: int | None = None
     last_error: str | None = None
     unavailable_reason: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
 
-class AgentToolList(_ApiModel):
-    """Paginated list response for agent tools.
+class ToolList(_ApiModel):
+    """Paginated list response for tools.
 
     Attributes:
-        tools (list[AgentToolResponse]): This page of tools.
+        tools (list[ToolResponse]): This page of tools.
         total (int): Total matching tools.
         skip (int): Offset of this page.
         limit (int): Page size.
-        agent_tools_enabled (bool): ``False`` when the deployment has agent
-            tools turned off: tools still list, but no agent uses them and
-            edits are refused.
+        tools_enabled (bool): ``False`` when the deployment has tools
+            turned off: tools still list, but no task or notebook uses them
+            and edits are refused.
         oauth_available (bool): Whether MCP tools can sign in on this
             deployment.
     """
 
-    tools: list[AgentToolResponse] = []
+    tools: list[ToolResponse] = []
     total: int = 0
     skip: int = 0
     limit: int = 0
-    agent_tools_enabled: bool = True
+    tools_enabled: bool = True
     oauth_available: bool = False
 
 
-class AgentToolDeleteResponse(_ApiModel):
-    """Result of an agent-tool deletion.
+class ToolDeleteResponse(_ApiModel):
+    """Result of a tool deletion.
 
     Attributes:
         id (UUID): The deleted tool's id.
-        operator_count (int): How many agents were unlinked from the tool.
+        task_count (int): How many tasks were unlinked from the tool.
     """
 
     id: UUID
-    operator_count: int = 0
+    task_count: int = 0
 
 
 class McpConnectorInfo(_ApiModel):
@@ -379,12 +382,12 @@ class RestRouteTestResponse(_ApiModel):
 
 
 class _ToolsSection(_Section):
-    """Agent tools: MCP servers, connectors, and REST APIs agents can call.
+    """Tools: MCP servers, connectors, and REST APIs that tasks can call.
 
     Every project has built-in ``system`` tools plus the ``mcp`` and ``rest``
-    tools you add. Attach them to LLM agents through the ``tool_ids`` argument
-    of ``client.operators.create`` / ``client.operators.update``. A tool created
-    with ``skill_id`` belongs to that skill instead and reaches only the agents
+    tools you add. Attach them to LLM tasks through the ``tool_ids`` argument
+    of ``client.tasks.create`` / ``client.tasks.update``. A tool created
+    with ``skill_id`` belongs to that skill instead and reaches only the tasks
     that enable the skill.
 
     A tool's ``slug`` is its immutable id and the prefix of every function the
@@ -395,12 +398,10 @@ class _ToolsSection(_Section):
     sent with ``"value": None`` keeps its stored value.
     """
 
-    def list(
-        self, project_id: UUID, *, skip: int = 0, limit: int = 100
-    ) -> AgentToolList:
+    def list(self, project_id: UUID, *, skip: int = 0, limit: int = 100) -> ToolList:
         """List a project's tools.
 
-        Calls ``GET /api/agent-tools/``. Built-in tools come first, then the
+        Calls ``GET /api/tools/``. Built-in tools come first, then the
         project's own tools by name. A web tool the workspace has turned off is
         left out.
 
@@ -410,31 +411,31 @@ class _ToolsSection(_Section):
             limit (int): Maximum number of results per page.
 
         Returns:
-            AgentToolList: A page of tools plus the total count.
+            ToolList: A page of tools plus the total count.
         """
         response = self._parent._request(
             "GET",
-            "/api/agent-tools/",
+            "/api/tools/",
             params={"project_id": str(project_id), "skip": skip, "limit": limit},
         )
-        return AgentToolList.model_validate(response.json())
+        return ToolList.model_validate(response.json())
 
-    def get(self, tool_id: UUID) -> AgentToolResponse:
+    def get(self, tool_id: UUID) -> ToolResponse:
         """Fetch a single tool, with its secret headers masked.
 
-        Calls ``GET /api/agent-tools/{tool_id}``.
+        Calls ``GET /api/tools/{tool_id}``.
 
         Args:
             tool_id (UUID): Tool to fetch.
 
         Returns:
-            AgentToolResponse: The tool.
+            ToolResponse: The tool.
 
         Raises:
             NotFoundError: If no tool has that id.
         """
-        response = self._parent._request("GET", f"/api/agent-tools/{tool_id}")
-        return AgentToolResponse.model_validate(response.json())
+        response = self._parent._request("GET", f"/api/tools/{tool_id}")
+        return ToolResponse.model_validate(response.json())
 
     def create_mcp(
         self,
@@ -451,11 +452,12 @@ class _ToolsSection(_Section):
         timeout_seconds: int | None = None,
         is_available: bool = True,
         notebook_enabled: bool = False,
-    ) -> AgentToolResponse:
+        task_enabled: bool = True,
+    ) -> ToolResponse:
         """Create an MCP tool from a remote server's URL.
 
-        Calls ``POST /api/agent-tools/``. The server reads the tool list once,
-        before saving, and pins it: agents see the list as it was at save time.
+        Calls ``POST /api/tools/``. The server reads the tool list once,
+        before saving, and pins it: tasks see the list as it was at save time.
         A server that cannot be reached still produces a tool, with the failure
         on ``last_error``; :meth:`discover` retries it.
 
@@ -466,26 +468,28 @@ class _ToolsSection(_Section):
             description (str): What the tool is for.
             url (str): The server's Streamable HTTP endpoint.
             skill_id (UUID | None): Nest the tool under this skill, so only
-                agents that enable the skill can call it. Immutable afterwards.
+                tasks that enable the skill can call it. Immutable afterwards.
             slug (str | None): Immutable id and function-name prefix; derived
                 from ``name`` when omitted.
             transport (str): An :class:`McpTransport` value.
             auth (str): An :class:`McpAuthMode` value. With ``"oauth"`` the tool
-                is created without a connection and reaches no agent until
+                is created without a connection and reaches no task until
                 someone signs in through :meth:`oauth_start`.
             headers (list[dict[str, Any]] | None): Request headers, each with a
                 value. Mark credentials ``"is_secret": True``. An OAuth tool may
                 not set ``Authorization``.
             timeout_seconds (int | None): Per-call timeout override.
             is_available (bool): Project-level master switch.
-            notebook_enabled (bool): Whether the notebook agent may use it.
+            notebook_enabled (bool): Whether notebooks may use it.
+            task_enabled (bool): Whether tasks may be given it. On by
+                default; it must stay on for a tool nested under a skill.
 
         Returns:
-            AgentToolResponse: The created tool, including the functions found.
+            ToolResponse: The created tool, including the functions found.
             An OAuth tool has none until it is connected.
         """
         payload = _body(
-            kind=AgentToolKind.MCP,
+            kind=ToolKind.MCP,
             source="custom",
             project_id=project_id,
             skill_id=skill_id,
@@ -494,6 +498,7 @@ class _ToolsSection(_Section):
             description=description,
             is_available=is_available,
             notebook_enabled=notebook_enabled,
+            task_enabled=task_enabled,
             mcp=_body(
                 url=url,
                 transport=transport,
@@ -504,16 +509,16 @@ class _ToolsSection(_Section):
         )
         response = self._parent._request(
             "POST",
-            "/api/agent-tools/",
+            "/api/tools/",
             json_body=payload,
             timeout=PROBE_TIMEOUT_SECONDS,
         )
-        return AgentToolResponse.model_validate(response.json())
+        return ToolResponse.model_validate(response.json())
 
     def list_connectors(self, project_id: UUID) -> McpConnectorList:
         """List the connector catalog available on this deployment.
 
-        Calls ``GET /api/agent-tools/connectors``. Every connector is listed,
+        Calls ``GET /api/tools/connectors``. Every connector is listed,
         with whether it can be connected here and, if not, why.
 
         Args:
@@ -524,7 +529,7 @@ class _ToolsSection(_Section):
         """
         response = self._parent._request(
             "GET",
-            "/api/agent-tools/connectors",
+            "/api/tools/connectors",
             params={"project_id": str(project_id)},
         )
         return McpConnectorList.model_validate(response.json())
@@ -542,10 +547,11 @@ class _ToolsSection(_Section):
         timeout_seconds: int | None = None,
         is_available: bool = True,
         notebook_enabled: bool = False,
-    ) -> AgentToolResponse:
+        task_enabled: bool = True,
+    ) -> ToolResponse:
         """Add an MCP tool from the connector catalog.
 
-        Calls ``POST /api/agent-tools/``. The server URL, headers, and sign-in
+        Calls ``POST /api/tools/``. The server URL, headers, and sign-in
         come from the connector. The tool is created without a connection:
         call :meth:`oauth_start` and open the returned URL to sign in.
 
@@ -556,7 +562,7 @@ class _ToolsSection(_Section):
             project_id (UUID): Project to add the tool to.
             connector (str): An :class:`McpConnector` value, e.g. ``"github"``.
             skill_id (UUID | None): Nest the tool under this skill, so only
-                agents that enable the skill can call it. Immutable afterwards.
+                tasks that enable the skill can call it. Immutable afterwards.
             name (str | None): Display name; the connector's name when omitted.
                 Names are unique in a project, so a second tool from the same
                 connector needs its own.
@@ -568,10 +574,12 @@ class _ToolsSection(_Section):
                 lists each connector's settings and allowed values.
             timeout_seconds (int | None): Per-call timeout override.
             is_available (bool): Project-level master switch.
-            notebook_enabled (bool): Whether the notebook agent may use it.
+            notebook_enabled (bool): Whether notebooks may use it.
+            task_enabled (bool): Whether tasks may be given it. On by
+                default; it must stay on for a tool nested under a skill.
 
         Returns:
-            AgentToolResponse: The created tool, not yet connected.
+            ToolResponse: The created tool, not yet connected.
 
         Raises:
             ValueError: If ``name`` or ``description`` is omitted and the
@@ -594,7 +602,7 @@ class _ToolsSection(_Section):
             name = entry.name if name is None else name
             description = entry.description if description is None else description
         payload = _body(
-            kind=AgentToolKind.MCP,
+            kind=ToolKind.MCP,
             source="connector",
             project_id=project_id,
             skill_id=skill_id,
@@ -603,16 +611,17 @@ class _ToolsSection(_Section):
             description=description,
             is_available=is_available,
             notebook_enabled=notebook_enabled,
+            task_enabled=task_enabled,
             connector={"connector": connector, "parameters": dict(parameters or {})},
             timeout_seconds=timeout_seconds,
         )
         response = self._parent._request(
             "POST",
-            "/api/agent-tools/",
+            "/api/tools/",
             json_body=payload,
             timeout=PROBE_TIMEOUT_SECONDS,
         )
-        return AgentToolResponse.model_validate(response.json())
+        return ToolResponse.model_validate(response.json())
 
     def create_rest(
         self,
@@ -627,10 +636,11 @@ class _ToolsSection(_Section):
         headers: list[dict[str, Any]] | None = None,
         is_available: bool = True,
         notebook_enabled: bool = False,
-    ) -> AgentToolResponse:
+        task_enabled: bool = True,
+    ) -> ToolResponse:
         """Create a REST tool from a base URL and its routes.
 
-        Calls ``POST /api/agent-tools/``. Each route becomes one function named
+        Calls ``POST /api/tools/``. Each route becomes one function named
         ``<slug>__<function_name>``. A route is a dict with ``function_name``,
         ``description``, ``method``, ``path`` (may contain ``{placeholders}``),
         optional ``params`` (``path`` and ``query`` parameter lists and a
@@ -647,19 +657,21 @@ class _ToolsSection(_Section):
                 or credentials.
             routes (list[dict[str, Any]]): One or more routes.
             skill_id (UUID | None): Nest the tool under this skill, so only
-                agents that enable the skill can call it. Immutable afterwards.
+                tasks that enable the skill can call it. Immutable afterwards.
             slug (str | None): Immutable id and function-name prefix; derived
                 from ``name`` when omitted.
             headers (list[dict[str, Any]] | None): Request headers, each with a
                 value. Mark credentials ``"is_secret": True``.
             is_available (bool): Project-level master switch.
-            notebook_enabled (bool): Whether the notebook agent may use it.
+            notebook_enabled (bool): Whether notebooks may use it.
+            task_enabled (bool): Whether tasks may be given it. On by
+                default; it must stay on for a tool nested under a skill.
 
         Returns:
-            AgentToolResponse: The created tool and its route functions.
+            ToolResponse: The created tool and its route functions.
         """
         payload = _body(
-            kind=AgentToolKind.REST,
+            kind=ToolKind.REST,
             project_id=project_id,
             skill_id=skill_id,
             name=name,
@@ -667,10 +679,11 @@ class _ToolsSection(_Section):
             description=description,
             is_available=is_available,
             notebook_enabled=notebook_enabled,
+            task_enabled=task_enabled,
             rest={"base_url": base_url, "headers": headers or [], "routes": routes},
         )
-        response = self._parent._request("POST", "/api/agent-tools/", json_body=payload)
-        return AgentToolResponse.model_validate(response.json())
+        response = self._parent._request("POST", "/api/tools/", json_body=payload)
+        return ToolResponse.model_validate(response.json())
 
     def update(
         self,
@@ -680,15 +693,17 @@ class _ToolsSection(_Section):
         description: str | None = None,
         is_available: bool | None = None,
         notebook_enabled: bool | None = None,
+        task_enabled: bool | None = None,
         mcp: dict[str, Any] | None = None,
         rest: dict[str, Any] | None = None,
         connector: dict[str, Any] | None = None,
-    ) -> AgentToolResponse:
+    ) -> ToolResponse:
         """Partially update a tool; omitted fields are left unchanged.
 
-        Calls ``PUT /api/agent-tools/{tool_id}``. Only the arguments passed as
+        Calls ``PUT /api/tools/{tool_id}``. Only the arguments passed as
         non-``None`` are sent. The kind, slug, and owning skill are immutable,
-        and a built-in tool accepts only the two switches.
+        and a built-in tool accepts only its switches (``is_available``,
+        ``notebook_enabled`` and ``task_enabled``).
 
         The config dicts carry only the keys to change. In ``mcp`` those are
         ``url``, ``transport``, ``headers``, ``timeout_seconds`` (``None``
@@ -708,6 +723,8 @@ class _ToolsSection(_Section):
             description (str | None): New description.
             is_available (bool | None): New availability.
             notebook_enabled (bool | None): New notebook exposure.
+            task_enabled (bool | None): New task exposure. Refused on a tool
+                nested under a skill.
             mcp (dict[str, Any] | None): MCP configuration changes. Custom MCP
                 tools only.
             rest (dict[str, Any] | None): REST configuration changes. REST tools
@@ -717,47 +734,48 @@ class _ToolsSection(_Section):
                 another account or site disconnect it.
 
         Returns:
-            AgentToolResponse: The updated tool.
+            ToolResponse: The updated tool.
         """
         payload = _body(
             name=name,
             description=description,
             is_available=is_available,
             notebook_enabled=notebook_enabled,
+            task_enabled=task_enabled,
             mcp=mcp,
             rest=rest,
             connector=connector,
         )
         response = self._parent._request(
             "PUT",
-            f"/api/agent-tools/{tool_id}",
+            f"/api/tools/{tool_id}",
             json_body=payload,
             timeout=PROBE_TIMEOUT_SECONDS,
         )
-        return AgentToolResponse.model_validate(response.json())
+        return ToolResponse.model_validate(response.json())
 
-    def delete(self, tool_id: UUID) -> AgentToolDeleteResponse:
-        """Delete a tool, unlinking it from every agent that selected it.
+    def delete(self, tool_id: UUID) -> ToolDeleteResponse:
+        """Delete a tool, unlinking it from every task that selected it.
 
-        Calls ``DELETE /api/agent-tools/{tool_id}``. Deployed endpoints whose
-        workflow used the tool run without it from their next run on.
+        Calls ``DELETE /api/tools/{tool_id}``. Deployed endpoints whose
+        agent used the tool run without it from their next run on.
 
         Args:
             tool_id (UUID): Tool to delete.
 
         Returns:
-            AgentToolDeleteResponse: The deleted id and how many agents were
+            ToolDeleteResponse: The deleted id and how many tasks were
             unlinked.
         """
-        response = self._parent._request("DELETE", f"/api/agent-tools/{tool_id}")
-        return AgentToolDeleteResponse.model_validate(response.json())
+        response = self._parent._request("DELETE", f"/api/tools/{tool_id}")
+        return ToolDeleteResponse.model_validate(response.json())
 
     def discover(self, tool_id: UUID) -> McpDiscoverResponse:
         """Re-read a saved MCP server's tools and pin the new list.
 
-        Calls ``POST /api/agent-tools/{tool_id}/discover``. The response names
+        Calls ``POST /api/tools/{tool_id}/discover``. The response names
         what was ``added`` and ``removed``, since a refresh changes what every
-        linked agent sees. A failure keeps the previous list and says why.
+        linked task sees. A failure keeps the previous list and says why.
 
         Args:
             tool_id (UUID): MCP tool to refresh.
@@ -767,7 +785,7 @@ class _ToolsSection(_Section):
         """
         response = self._parent._request(
             "POST",
-            f"/api/agent-tools/{tool_id}/discover",
+            f"/api/tools/{tool_id}/discover",
             timeout=PROBE_TIMEOUT_SECONDS,
         )
         return McpDiscoverResponse.model_validate(response.json())
@@ -781,7 +799,7 @@ class _ToolsSection(_Section):
     ) -> McpOAuthStartResponse:
         """Begin a sign-in for an MCP server that authenticates its users.
 
-        Calls ``POST /api/agent-tools/{tool_id}/oauth/start``. There are two
+        Calls ``POST /api/tools/{tool_id}/oauth/start``. There are two
         outcomes:
 
         - ``"redirect"``: open ``authorization_url`` in a browser. It is good
@@ -804,38 +822,38 @@ class _ToolsSection(_Section):
         """
         response = self._parent._request(
             "POST",
-            f"/api/agent-tools/{tool_id}/oauth/start",
+            f"/api/tools/{tool_id}/oauth/start",
             json_body=_body(client_id=client_id, client_secret=client_secret),
             timeout=PROBE_TIMEOUT_SECONDS,
         )
         return McpOAuthStartResponse.model_validate(response.json())
 
-    def oauth_disconnect(self, tool_id: UUID) -> AgentToolResponse:
+    def oauth_disconnect(self, tool_id: UUID) -> ToolResponse:
         """Discard an MCP tool's sign-in, revoking it at the provider first.
 
-        Calls ``DELETE /api/agent-tools/{tool_id}/oauth``. The discovered
+        Calls ``DELETE /api/tools/{tool_id}/oauth``. The discovered
         functions stay on the tool, so connecting again puts it straight back
-        to work; meanwhile no agent uses it.
+        to work; meanwhile no task uses it.
 
         Args:
             tool_id (UUID): The connected MCP tool.
 
         Returns:
-            AgentToolResponse: The tool, now disconnected.
+            ToolResponse: The tool, now disconnected.
         """
         response = self._parent._request(
             "DELETE",
-            f"/api/agent-tools/{tool_id}/oauth",
+            f"/api/tools/{tool_id}/oauth",
             timeout=PROBE_TIMEOUT_SECONDS,
         )
-        return AgentToolResponse.model_validate(response.json())
+        return ToolResponse.model_validate(response.json())
 
     def parse_mcp_config(
         self, config: dict[str, Any], *, project_id: UUID
     ) -> McpParseConfigResponse:
         """Normalize a pasted ``mcpServers`` config into usable servers.
 
-        Calls ``POST /api/agent-tools/mcp/parse-config``. Nothing is created and
+        Calls ``POST /api/tools/mcp/parse-config``. Nothing is created and
         no server is contacted. Local (stdio) entries, the legacy SSE
         transport, and values still holding a ``${VAR}`` placeholder are
         skipped with a warning naming each one.
@@ -851,7 +869,7 @@ class _ToolsSection(_Section):
         """
         response = self._parent._request(
             "POST",
-            "/api/agent-tools/mcp/parse-config",
+            "/api/tools/mcp/parse-config",
             json_body=_body(project_id=project_id, config=config),
         )
         return McpParseConfigResponse.model_validate(response.json())
@@ -866,7 +884,7 @@ class _ToolsSection(_Section):
     ) -> McpDiscoverResponse:
         """Read an MCP server's tools without saving anything.
 
-        Calls ``POST /api/agent-tools/mcp/discover``. Pass ``tool_id`` to
+        Calls ``POST /api/tools/mcp/discover``. Pass ``tool_id`` to
         resolve secret headers sent with ``"value": None`` against that tool's
         stored values (only while the URL keeps the saved tool's scheme, host,
         and port) and to get the ``added`` / ``removed`` diff.
@@ -885,7 +903,7 @@ class _ToolsSection(_Section):
         """
         response = self._parent._request(
             "POST",
-            "/api/agent-tools/mcp/discover",
+            "/api/tools/mcp/discover",
             json_body=_body(project_id=project_id, tool_id=tool_id, slug=slug, mcp=mcp),
             timeout=PROBE_TIMEOUT_SECONDS,
         )
@@ -903,7 +921,7 @@ class _ToolsSection(_Section):
     ) -> RestRouteTestResponse:
         """Call one REST route against its server and report what came back.
 
-        Calls ``POST /api/agent-tools/rest/test``. The preview is the text the
+        Calls ``POST /api/tools/rest/test``. The preview is the text the
         model would have seen. Header values are never echoed back. Pass
         ``tool_id`` to resolve secret headers sent with ``"value": None``
         against that tool's stored values, which works only while the base URL
@@ -933,7 +951,7 @@ class _ToolsSection(_Section):
         )
         response = self._parent._request(
             "POST",
-            "/api/agent-tools/rest/test",
+            "/api/tools/rest/test",
             json_body=payload,
             timeout=PROBE_TIMEOUT_SECONDS,
         )

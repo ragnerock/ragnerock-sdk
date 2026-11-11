@@ -1,4 +1,4 @@
-"""Tests for the `>>` DAG-wiring operator and `Workflow.add_node`."""
+"""Tests for the `>>` DAG-wiring operator and `Agent.add_node`."""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from ragnerock import Operator, Workflow, WorkflowNode
+from ragnerock import Agent, AgentNode, Task
 from ragnerock.errors import ValidationError
 
 
 class _FakeSession:
     """Minimal session stand-in that records staged resources.
 
-    The `>>` operator only needs `session.update(node)`, and `Workflow.add_node`
+    The `>>` operator only needs `session.update(node)`, and `Agent.add_node`
     only needs `session.add(node)`. We don't care about network calls here.
     """
 
@@ -34,12 +34,12 @@ class _FakeSession:
         self.updated.append(resource)
 
 
-def _make_node(session: _FakeSession, workflow_id: UUID) -> WorkflowNode:
-    node = WorkflowNode(
+def _make_node(session: _FakeSession, agent_id: UUID) -> AgentNode:
+    node = AgentNode(
         id=uuid4(),
-        workflow_id=workflow_id,
-        operator_id=uuid4(),
-        operator_name="op",
+        agent_id=agent_id,
+        task_id=uuid4(),
+        task_name="extract",
     )
     node._bind(session)  # type: ignore[arg-type]
     return node
@@ -51,14 +51,14 @@ def session() -> _FakeSession:
 
 
 @pytest.fixture
-def workflow_id() -> UUID:
+def agent_id() -> UUID:
     return uuid4()
 
 
 @pytest.fixture
-def nodes(session, workflow_id):
-    """Five nodes (a, b, c, d, e) all sharing a session and workflow."""
-    return [_make_node(session, workflow_id) for _ in range(5)]
+def nodes(session, agent_id):
+    """Five nodes (a, b, c, d, e) all sharing a session and agent."""
+    return [_make_node(session, agent_id) for _ in range(5)]
 
 
 class TestBasicWiring:
@@ -127,72 +127,70 @@ class TestIdempotency:
 
 
 class TestValidation:
-    def test_wiring_unpersisted_node_raises(self, session, workflow_id, nodes):
+    def test_wiring_unpersisted_node_raises(self, session, agent_id, nodes):
         a = nodes[0]
-        unpersisted = WorkflowNode(workflow_id=workflow_id, operator_id=uuid4())
+        unpersisted = AgentNode(agent_id=agent_id, task_id=uuid4())
         unpersisted._bind(session)  # type: ignore[arg-type]
         with pytest.raises(ValidationError, match="no id yet"):
             a >> unpersisted
         with pytest.raises(ValidationError, match="no id yet"):
             unpersisted >> a
 
-    def test_wiring_unbound_node_raises(self, workflow_id, nodes):
+    def test_wiring_unbound_node_raises(self, agent_id, nodes):
         a = nodes[0]
-        floating = WorkflowNode(
-            id=uuid4(), workflow_id=workflow_id, operator_id=uuid4()
-        )
+        floating = AgentNode(id=uuid4(), agent_id=agent_id, task_id=uuid4())
         # not bound to any session
         with pytest.raises(RuntimeError, match="bound to a session"):
             a >> floating
 
-    def test_cross_workflow_wiring_raises(self, session, nodes):
+    def test_cross_agent_wiring_raises(self, session, nodes):
         a = nodes[0]
-        other = WorkflowNode(id=uuid4(), workflow_id=uuid4(), operator_id=uuid4())
+        other = AgentNode(id=uuid4(), agent_id=uuid4(), task_id=uuid4())
         other._bind(session)  # type: ignore[arg-type]
-        with pytest.raises(ValidationError, match="different workflows"):
+        with pytest.raises(ValidationError, match="different agents"):
             a >> other
 
-    def test_cross_session_wiring_raises(self, workflow_id, nodes):
+    def test_cross_session_wiring_raises(self, agent_id, nodes):
         a = nodes[0]
         other_session = _FakeSession()
-        other = WorkflowNode(id=uuid4(), workflow_id=workflow_id, operator_id=uuid4())
+        other = AgentNode(id=uuid4(), agent_id=agent_id, task_id=uuid4())
         other._bind(other_session)  # type: ignore[arg-type]
         with pytest.raises(ValidationError, match="different sessions"):
             a >> other
 
     def test_rshift_with_wrong_type_raises(self, nodes):
         a = nodes[0]
-        with pytest.raises(TypeError, match="WorkflowNode"):
+        with pytest.raises(TypeError, match="AgentNode"):
             a >> "not-a-node"  # type: ignore[operator]
 
     def test_rshift_list_with_wrong_type_raises(self, nodes):
         a = nodes[0]
-        with pytest.raises(TypeError, match="WorkflowNode"):
+        with pytest.raises(TypeError, match="AgentNode"):
             a >> [nodes[1], "not-a-node"]  # type: ignore[list-item]
 
 
-class TestWorkflowAddNode:
-    def test_add_node_stages_and_returns(self, session, workflow_id):
-        wf = Workflow(id=workflow_id, name="wf")
-        wf._bind(session)  # type: ignore[arg-type]
+class TestAgentAddNode:
+    def test_add_node_stages_and_returns(self, session, agent_id):
+        agent = Agent(id=agent_id, name="pipeline")
+        agent._bind(session)  # type: ignore[arg-type]
 
-        op = Operator(id=uuid4(), name="extract")
-        node = wf.add_node(operator=op)
+        task = Task(id=uuid4(), name="extract")
+        node = agent.add_node(task=task)
 
-        assert isinstance(node, WorkflowNode)
-        assert node.workflow_id == wf.id
-        assert node.operator_id == op.id
-        assert node.operator_name == "extract"
-        assert node in wf.nodes
+        assert isinstance(node, AgentNode)
+        assert node.agent_id == agent.id
+        assert node.task_id == task.id
+        assert node.task_name == "extract"
+        assert node in agent.nodes
         assert node in session.added
 
-    def test_add_node_forwards_config(self, session, workflow_id):
-        wf = Workflow(id=workflow_id, name="wf")
-        wf._bind(session)  # type: ignore[arg-type]
-        op = Operator(id=uuid4(), name="classify")
+    def test_add_node_forwards_config(self, session, agent_id):
+        agent = Agent(id=agent_id, name="pipeline")
+        agent._bind(session)  # type: ignore[arg-type]
+        task = Task(id=uuid4(), name="classify")
 
-        node = wf.add_node(
-            operator=op,
+        node = agent.add_node(
+            task=task,
             condition={"extract.total": {"$gt": 0}},
             persist=False,
             on_error="SKIP_NODE",
@@ -208,30 +206,30 @@ class TestWorkflowAddNode:
         assert node.on_error == "SKIP_NODE"
         assert node.max_retries == 3
 
-    def test_add_node_rejects_malformed_condition(self, session, workflow_id):
-        wf = Workflow(id=workflow_id, name="wf")
-        wf._bind(session)  # type: ignore[arg-type]
-        op = Operator(id=uuid4(), name="classify")
+    def test_add_node_rejects_malformed_condition(self, session, agent_id):
+        agent = Agent(id=agent_id, name="pipeline")
+        agent._bind(session)  # type: ignore[arg-type]
+        task = Task(id=uuid4(), name="classify")
 
         with pytest.raises(ValidationError, match="unknown operator"):
-            wf.add_node(operator=op, condition={"score": {"$bogus": 0}})
+            agent.add_node(task=task, condition={"score": {"$bogus": 0}})
 
-    def test_add_node_on_unbound_workflow_raises(self, workflow_id):
-        wf = Workflow(id=workflow_id, name="wf")
-        op = Operator(id=uuid4(), name="op")
+    def test_add_node_on_unbound_agent_raises(self, agent_id):
+        agent = Agent(id=agent_id, name="pipeline")
+        task = Task(id=uuid4(), name="extract")
         with pytest.raises(RuntimeError, match="not bound to a session"):
-            wf.add_node(operator=op)
+            agent.add_node(task=task)
 
-    def test_add_node_on_unpersisted_workflow_raises(self, session):
-        wf = Workflow(name="wf")
-        wf._bind(session)  # type: ignore[arg-type]
-        op = Operator(id=uuid4(), name="op")
-        with pytest.raises(ValidationError, match="unpersisted workflow"):
-            wf.add_node(operator=op)
+    def test_add_node_on_unpersisted_agent_raises(self, session):
+        agent = Agent(name="pipeline")
+        agent._bind(session)  # type: ignore[arg-type]
+        task = Task(id=uuid4(), name="extract")
+        with pytest.raises(ValidationError, match="unpersisted agent"):
+            agent.add_node(task=task)
 
-    def test_add_node_with_unpersisted_operator_raises(self, session, workflow_id):
-        wf = Workflow(id=workflow_id, name="wf")
-        wf._bind(session)  # type: ignore[arg-type]
-        op = Operator(name="op")  # no id
-        with pytest.raises(ValidationError, match="unpersisted operator"):
-            wf.add_node(operator=op)
+    def test_add_node_with_unpersisted_task_raises(self, session, agent_id):
+        agent = Agent(id=agent_id, name="pipeline")
+        agent._bind(session)  # type: ignore[arg-type]
+        task = Task(name="extract")  # no id
+        with pytest.raises(ValidationError, match="unpersisted task"):
+            agent.add_node(task=task)

@@ -1,10 +1,10 @@
-"""Agent assignment endpoints (``/api/projects/{id}/assignments/...``).
+"""Assignment endpoints (``/api/projects/{id}/assignments/...``).
 
-An assignment is an agent given a task. The task opens a transcript — a
-notebook that is the agent's own record, hidden from notebook lists — and the
-agent works through it turn by turn until it answers. An assignment runs as
-the person who gave it (their credentials and credits), and is bounded by a
-token budget, a turn cap and a deadline.
+An assignment is a task given instructions. The instructions open a
+transcript — a notebook that is the task's own record, hidden from notebook
+lists — and the task works through it turn by turn until it answers. An
+assignment runs as the person who gave it (their credentials and credits), and
+is bounded by a token budget, a turn cap and a deadline.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ class AssignmentStatus(StrEnum):
     WAITING = "waiting"
     """Suspended until a child finishes, a person answers, or a time passes."""
 
-    HALTED = "halted"
+    PAUSED = "paused"
     """Paused, and resumable from where it stopped."""
 
     DONE = "done"
@@ -47,8 +47,8 @@ class AssignmentStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
-class AgentQuestionStatus(StrEnum):
-    """Where a question an agent asked a person stands."""
+class AssignmentQuestionStatus(StrEnum):
+    """Where a question a task asked a person stands."""
 
     OPEN = "open"
     """Waiting for an answer."""
@@ -59,17 +59,19 @@ class AgentQuestionStatus(StrEnum):
 
 
 class AssignmentResponse(_ApiModel):
-    """An agent assignment.
+    """An assignment: a task given instructions.
 
     Attributes:
         id (UUID): The assignment.
         project_id (UUID | None): Its project.
-        agent_id (UUID | None): The agent it runs as; ``None`` for the
-            research agent.
+        task_id (UUID | None): The task it runs as; ``None`` for a built-in
+            task such as the research assistant.
+        builtin_task (str | None): The built-in task it runs when it has no
+            ``task_id`` (e.g. ``"research_assistant"``).
         notebook_id (UUID | None): Its transcript, readable through
             ``client.notebooks`` and ``client.cells`` like any notebook.
         status (str | None): An :class:`AssignmentStatus` value.
-        status_reason (str | None): Why it stopped, for a failed, halted or
+        status_reason (str | None): Why it stopped, for a failed, paused or
             cancelled assignment (e.g. ``"budget_exhausted"``).
         last_error (str | None): Why its last turn failed.
         parent_id (UUID | None): The assignment that dispatched it, if any.
@@ -84,7 +86,8 @@ class AssignmentResponse(_ApiModel):
 
     id: UUID
     project_id: UUID | None = None
-    agent_id: UUID | None = None
+    task_id: UUID | None = None
+    builtin_task: str | None = None
     notebook_id: UUID | None = None
     runs_as_user_id: UUID | None = None
     status: str | None = None
@@ -112,20 +115,20 @@ class AssignmentListResponse(_ApiModel):
 
 
 class AssignmentSpend(_ApiModel):
-    """What your assignments of one agent were given and have spent."""
+    """What your assignments of one task were given and have spent."""
 
     assignments: int = 0
     budget_cost_weighted_tokens: int = 0
     spent_cost_weighted_tokens: int = 0
 
 
-class AgentAssignmentListResponse(_ApiModel):
-    """A page of one agent's assignments, with its per-status counts.
+class TaskAssignmentListResponse(_ApiModel):
+    """A page of one task's assignments, with its per-status counts.
 
     Attributes:
-        counts (dict[str, int]): The agent's assignments in each status,
+        counts (dict[str, int]): The task's assignments in each status,
             whatever the filter.
-        spend (AssignmentSpend | None): Your own spend on this agent.
+        spend (AssignmentSpend | None): Your own spend on this task.
         retention_days (int | None): How many days a finished assignment's
             transcript is kept.
     """
@@ -139,8 +142,8 @@ class AgentAssignmentListResponse(_ApiModel):
     retention_days: int | None = None
 
 
-class AgentThread(_ApiModel):
-    """One assignment transcript or conversation with an agent.
+class TaskThread(_ApiModel):
+    """One assignment transcript or conversation with a task.
 
     Attributes:
         kind (str | None): ``"transcript"`` or ``"conversation"``.
@@ -159,33 +162,33 @@ class AgentThread(_ApiModel):
     status: str | None = None
 
 
-class AgentThreadListResponse(_ApiModel):
-    """Paginated list response for an agent's threads."""
+class TaskThreadListResponse(_ApiModel):
+    """Paginated list response for a task's threads."""
 
-    threads: list[AgentThread] = []
+    threads: list[TaskThread] = []
     total: int = 0
     skip: int = 0
     limit: int = 0
 
 
-class AgentQuestionResponse(_ApiModel):
-    """A question an agent asked a person.
+class AssignmentQuestionResponse(_ApiModel):
+    """A question a task asked a person while working on an assignment.
 
     Attributes:
         id (UUID): The question.
         assignment_id (UUID | None): The assignment that asked it.
         notebook_id (UUID | None): The assignment's transcript.
-        question (str | None): What the agent asked.
-        status (str | None): An :class:`AgentQuestionStatus` value.
+        question (str | None): What the task asked.
+        status (str | None): An :class:`AssignmentQuestionStatus` value.
         answer (str | None): The answer, once there is one.
-        deadline (datetime | None): When the agent stops waiting.
+        deadline (datetime | None): When the task stops waiting.
     """
 
     id: UUID
     project_id: UUID | None = None
     assignment_id: UUID | None = None
-    agent_id: UUID | None = None
-    agent_name: str | None = None
+    task_id: UUID | None = None
+    task_name: str | None = None
     notebook_id: UUID | None = None
     question: str | None = None
     status: str | None = None
@@ -195,10 +198,10 @@ class AgentQuestionResponse(_ApiModel):
     created_at: UtcDatetime = None
 
 
-class AgentQuestionListResponse(_ApiModel):
-    """Paginated list response for agent questions."""
+class AssignmentQuestionListResponse(_ApiModel):
+    """Paginated list response for assignment questions."""
 
-    questions: list[AgentQuestionResponse] = []
+    questions: list[AssignmentQuestionResponse] = []
     total: int = 0
     skip: int = 0
     limit: int = 0
@@ -242,28 +245,29 @@ def _parse_stream_event(
 
 
 class _AssignmentsSection(_Section):
-    """Assignments: tasks given to agents, and the questions they ask."""
+    """Assignments: instructions given to tasks, and the questions they ask."""
 
     def create(
         self,
         project_id: UUID,
         *,
-        agent_id: UUID,
-        task: str,
+        task_id: UUID,
+        instructions: str,
         output_schema_id: UUID | None = None,
         deadline: datetime | None = None,
         budget: int | None = None,
     ) -> AssignmentResponse:
-        """Give an agent a task, and start it working.
+        """Give a task instructions, and start it working.
 
         Calls ``POST /api/projects/{project_id}/assignments``.
 
         Args:
             project_id (UUID): The project the work is in.
-            agent_id (UUID): The agent, one of the project's AI agents.
-            task (str): What the agent is to do.
+            task_id (UUID): The task, one of the project's model tasks.
+            instructions (str): What the task is to do: the first message of
+                the assignment's transcript.
             output_schema_id (UUID | None): A schema of the project the
-                agent's deliverable must match. Without one, the agent's
+                task's deliverable must match. Without one, the task's
                 answer in the transcript is the deliverable.
             deadline (datetime | None): When the assignment fails for age,
                 whatever it is doing. Timezone-aware, and in the future.
@@ -280,8 +284,8 @@ class _AssignmentsSection(_Section):
         if deadline is not None and deadline.utcoffset() is None:
             raise ValueError("deadline must be timezone-aware")
         body = _body(
-            agent_id=agent_id,
-            task=task,
+            task_id=task_id,
+            instructions=instructions,
             output_schema_id=output_schema_id,
             deadline=deadline.isoformat() if deadline is not None else None,
             budget_cost_weighted_tokens=budget,
@@ -296,12 +300,12 @@ class _AssignmentsSection(_Section):
         project_id: UUID,
         *,
         parent_id: UUID,
-        agent_id: UUID,
-        task: str,
+        task_id: UUID,
+        instructions: str,
         output_schema_id: UUID | None = None,
         budget: int | None = None,
     ) -> AssignmentResponse:
-        """Give one of your running assignments a child: another agent on part of the work.
+        """Give one of your running assignments a child: another task on part of the work.
 
         Calls ``POST /api/projects/{project_id}/assignments`` with a
         ``parent_id``. The child runs as you, until its parent's deadline, on a
@@ -311,8 +315,8 @@ class _AssignmentsSection(_Section):
         Args:
             project_id (UUID): The project the work is in.
             parent_id (UUID): The running assignment the child belongs to.
-            agent_id (UUID): The agent, one of the project's AI agents.
-            task (str): What the child is to do.
+            task_id (UUID): The task, one of the project's model tasks.
+            instructions (str): What the child is to do.
             output_schema_id (UUID | None): A schema of the project its
                 deliverable must match.
             budget (int | None): Its share of the parent's budget, in
@@ -323,8 +327,8 @@ class _AssignmentsSection(_Section):
             AssignmentResponse: The child, queued.
         """
         body = _body(
-            agent_id=agent_id,
-            task=task,
+            task_id=task_id,
+            instructions=instructions,
             output_schema_id=output_schema_id,
             parent_id=parent_id,
             budget_cost_weighted_tokens=budget,
@@ -379,41 +383,41 @@ class _AssignmentsSection(_Section):
     def questions(
         self,
         *,
-        status: str | None = AgentQuestionStatus.OPEN,
+        status: str | None = AssignmentQuestionStatus.OPEN,
         skip: int = 0,
         limit: int = 50,
-    ) -> AgentQuestionListResponse:
-        """List the questions agents have asked you, newest first.
+    ) -> AssignmentQuestionListResponse:
+        """List the questions tasks have asked you, newest first.
 
-        Calls ``GET /api/agent-questions``. By default, only the open ones:
-        the agents waiting on your answer.
+        Calls ``GET /api/assignment-questions``. By default, only the open ones:
+        the assignments waiting on your answer.
 
         Args:
-            status (str | None): An :class:`AgentQuestionStatus` value to
+            status (str | None): An :class:`AssignmentQuestionStatus` value to
                 filter by; ``None`` lists every question.
             skip (int): Offset into the result set.
             limit (int): Page size, at most 200.
 
         Returns:
-            AgentQuestionListResponse: A page of questions.
+            AssignmentQuestionListResponse: A page of questions.
         """
         response = self._parent._request(
             "GET",
-            "/api/agent-questions",
+            "/api/assignment-questions",
             params={
                 "skip": skip,
                 "limit": limit,
                 "status": str(status) if status is not None else None,
             },
         )
-        return AgentQuestionListResponse.model_validate(response.json())
+        return AssignmentQuestionListResponse.model_validate(response.json())
 
     def answer(
         self, project_id: UUID, question_id: UUID, *, answer: str
-    ) -> AgentQuestionResponse:
-        """Answer a question an agent asked you, and let it carry on.
+    ) -> AssignmentQuestionResponse:
+        """Answer a question a task asked you, and let it carry on.
 
-        Calls ``POST /api/projects/{project_id}/agent-questions/{question_id}/answer``.
+        Calls ``POST /api/projects/{project_id}/assignment-questions/{question_id}/answer``.
         The answer is written into the assignment's transcript as your message
         and wakes the assignment. Answering a question that is already
         answered changes nothing; the first answer stands.
@@ -424,14 +428,14 @@ class _AssignmentsSection(_Section):
             answer (str): Your answer.
 
         Returns:
-            AgentQuestionResponse: The question, answered.
+            AssignmentQuestionResponse: The question, answered.
         """
         response = self._parent._request(
             "POST",
-            f"/api/projects/{project_id}/agent-questions/{question_id}/answer",
+            f"/api/projects/{project_id}/assignment-questions/{question_id}/answer",
             json_body={"answer": answer},
         )
-        return AgentQuestionResponse.model_validate(response.json())
+        return AssignmentQuestionResponse.model_validate(response.json())
 
     def cancel(self, project_id: UUID, assignment_id: UUID) -> AssignmentResponse:
         """Cancel an assignment that has not finished.
@@ -452,24 +456,24 @@ class _AssignmentsSection(_Section):
         )
         return AssignmentResponse.model_validate(response.json())
 
-    def list_for_agent(
+    def list_for_task(
         self,
         project_id: UUID,
-        agent_id: UUID,
+        task_id: UUID,
         *,
         status: list[str] | None = None,
         skip: int = 0,
         limit: int = 50,
-    ) -> AgentAssignmentListResponse:
-        """List one agent's assignments in a project, newest first.
+    ) -> TaskAssignmentListResponse:
+        """List one task's assignments in a project, newest first.
 
-        Calls ``GET /api/projects/{project_id}/agents/{agent_id}/assignments``.
-        Beside the page come the agent's counts in every status, whatever the
+        Calls ``GET /api/projects/{project_id}/tasks/{task_id}/assignments``.
+        Beside the page come the task's counts in every status, whatever the
         filter, and what your own assignments of it have spent.
 
         Args:
             project_id (UUID): The project.
-            agent_id (UUID): The agent.
+            task_id (UUID): The task.
             status (list[str] | None): Only these :class:`AssignmentStatus`
                 values, sent as a repeated ``status`` parameter; ``None`` for
                 every status.
@@ -477,42 +481,42 @@ class _AssignmentsSection(_Section):
             limit (int): Page size, at most 200.
 
         Returns:
-            AgentAssignmentListResponse: The page, the total, the counts and
+            TaskAssignmentListResponse: The page, the total, the counts and
             your spend.
         """
         response = self._parent._request(
             "GET",
-            f"/api/projects/{project_id}/agents/{agent_id}/assignments",
+            f"/api/projects/{project_id}/tasks/{task_id}/assignments",
             params={
                 "skip": skip,
                 "limit": limit,
                 "status": [str(s) for s in status] if status is not None else None,
             },
         )
-        return AgentAssignmentListResponse.model_validate(response.json())
+        return TaskAssignmentListResponse.model_validate(response.json())
 
     def threads(
-        self, project_id: UUID, agent_id: UUID, *, skip: int = 0, limit: int = 50
-    ) -> AgentThreadListResponse:
-        """List an agent's transcripts and your conversations with it, newest first.
+        self, project_id: UUID, task_id: UUID, *, skip: int = 0, limit: int = 50
+    ) -> TaskThreadListResponse:
+        """List a task's transcripts and your conversations with it, newest first.
 
-        Calls ``GET /api/projects/{project_id}/agents/{agent_id}/threads``.
+        Calls ``GET /api/projects/{project_id}/tasks/{task_id}/threads``.
 
         Args:
             project_id (UUID): The project.
-            agent_id (UUID): The agent.
+            task_id (UUID): The task.
             skip (int): Offset into the result set.
             limit (int): Page size, at most 200.
 
         Returns:
-            AgentThreadListResponse: A page of threads.
+            TaskThreadListResponse: A page of threads.
         """
         response = self._parent._request(
             "GET",
-            f"/api/projects/{project_id}/agents/{agent_id}/threads",
+            f"/api/projects/{project_id}/tasks/{task_id}/threads",
             params={"skip": skip, "limit": limit},
         )
-        return AgentThreadListResponse.model_validate(response.json())
+        return TaskThreadListResponse.model_validate(response.json())
 
     def stream(
         self, project_id: UUID, assignment_id: UUID
@@ -552,10 +556,10 @@ class _AssignmentsSection(_Section):
                     yield event
 
     def resume(self, project_id: UUID, assignment_id: UUID) -> AssignmentResponse:
-        """Resume a paused (``halted``) assignment from where it stopped.
+        """Resume a ``paused`` assignment from where it stopped.
 
         Calls ``POST /api/projects/{project_id}/assignments/{assignment_id}/resume``.
-        Refused while whatever paused it still stands — a pause on its agent,
+        Refused while whatever paused it still stands — a pause on its task,
         a person or model it can no longer run as, an account out of credits.
 
         Args:

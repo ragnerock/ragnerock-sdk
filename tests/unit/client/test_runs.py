@@ -1,4 +1,4 @@
-"""Tests for the job section: run creation modes, manifests, and sink deliveries."""
+"""Tests for ``client.runs``: creation modes, manifests, and output deliveries."""
 
 from __future__ import annotations
 
@@ -21,26 +21,27 @@ from tests.unit.client.conftest import (
     url,
 )
 
-JOB_ID = uuid.UUID("00000000-0000-4000-8000-000000000801")
-RUN_ID = uuid.UUID("00000000-0000-4000-8000-000000000802")
+RUN_ID = uuid.UUID("00000000-0000-4000-8000-000000000801")
+PROVENANCE_ID = uuid.UUID("00000000-0000-4000-8000-000000000802")
 DOC_ID = uuid.UUID("00000000-0000-4000-8000-000000000101")
 DOC_2 = uuid.UUID("00000000-0000-4000-8000-000000000102")
-WORKFLOW_ID = uuid.UUID("00000000-0000-4000-8000-000000000701")
+AGENT_ID = uuid.UUID("00000000-0000-4000-8000-000000000701")
 NODE_ID = uuid.UUID("00000000-0000-4000-8000-000000000702")
-RESOURCE_ID = uuid.UUID("00000000-0000-4000-8000-000000000703")
-SINK_ID = uuid.UUID("00000000-0000-4000-8000-000000000a01")
+INPUT_ID = uuid.UUID("00000000-0000-4000-8000-000000000703")
+OUTPUT_ID = uuid.UUID("00000000-0000-4000-8000-000000000a01")
 GROUP_ID = uuid.UUID("00000000-0000-4000-8000-000000000b01")
 
 
-def _job(**overrides: Any) -> dict[str, Any]:
+def _run(**overrides: Any) -> dict[str, Any]:
+    """A run response body."""
     payload: dict[str, Any] = {
-        "id": str(JOB_ID),
+        "id": str(RUN_ID),
         "document_id": str(DOC_ID),
         "start_time": "2026-04-16T12:00:00Z",
         "end_time": None,
         "status": 2,
         "status_message": None,
-        "job_type": 2,
+        "kind": 2,
         "should_parse": True,
         "capture_execution_log": False,
         "n_tokens": None,
@@ -48,8 +49,13 @@ def _job(**overrides: Any) -> dict[str, Any]:
         "n_mb": None,
         "phase": "annotation",
         "current_stage_name": "Topics",
-        "workflow_ids": [str(WORKFLOW_ID)],
-        "run": {"id": str(RUN_ID), "trigger": "manual", "status": 2, "pins": []},
+        "agent_ids": [str(AGENT_ID)],
+        "provenance": {
+            "id": str(PROVENANCE_ID),
+            "trigger": "manual",
+            "status": 2,
+            "pins": [],
+        },
     }
     payload.update(overrides)
     return payload
@@ -62,70 +68,69 @@ class TestListAndGet:
         httpx_mock.add_response(
             method="GET",
             url=url(
-                f"/api/jobs/?project_id={PROJECT_ID}&status_filter=1%2C2&skip=0&limit=50"
+                f"/api/runs/?project_id={PROJECT_ID}&status_filter=1%2C2&skip=0&limit=50"
             ),
             json={
-                "jobs": [_job(document_name="report.pdf")],
+                "runs": [_run(document_name="report.pdf")],
                 "total": 1,
                 "skip": 0,
                 "limit": 50,
             },
         )
 
-        result = client.jobs.list(project_id=uuid.UUID(PROJECT_ID), status_filter="1,2")
+        result = client.runs.list(project_id=uuid.UUID(PROJECT_ID), status_filter="1,2")
 
-        assert result.jobs[0].document_name == "report.pdf"
+        assert result.runs[0].document_name == "report.pdf"
 
     def test_get_parses_commonly_read_fields(
         self, client: RagnerockClient, httpx_mock: Any
     ) -> None:
         httpx_mock.add_response(
-            method="GET", url=url(f"/api/jobs/{JOB_ID}"), json=_job()
+            method="GET", url=url(f"/api/runs/{RUN_ID}"), json=_run()
         )
 
-        job = client.jobs.get(JOB_ID)
+        run = client.runs.get(RUN_ID)
 
-        assert job.id == JOB_ID
-        assert job.status == 2
-        assert job.document_id == DOC_ID
-        assert job.phase == "annotation"
-        assert job.workflow_ids == [WORKFLOW_ID]
-        assert job.start_time == datetime(2026, 4, 16, 12, tzinfo=UTC)
-        assert job.end_time is None
-        assert job.run is not None and job.run["id"] == str(RUN_ID)
+        assert run.id == RUN_ID
+        assert run.status == 2
+        assert run.document_id == DOC_ID
+        assert run.phase == "annotation"
+        assert run.kind == 2
+        assert run.agent_ids == [AGENT_ID]
+        assert run.start_time == datetime(2026, 4, 16, 12, tzinfo=UTC)
+        assert run.end_time is None
+        assert run.provenance is not None and run.provenance["id"] == str(PROVENANCE_ID)
 
 
-class TestCreateManual:
+class TestCreate:
     def test_fan_out_mode(self, client: RagnerockClient, httpx_mock: Any) -> None:
         httpx_mock.add_response(
             method="POST",
-            url=url("/api/jobs/"),
-            json={"job_ids": [str(JOB_ID)]},
+            url=url("/api/runs/"),
+            json={"run_ids": [str(RUN_ID)]},
         )
 
-        result = client.jobs.create_manual(
-            document_ids=[DOC_ID], workflow_ids=[WORKFLOW_ID]
-        )
+        result = client.runs.create(document_ids=[DOC_ID], agent_ids=[AGENT_ID])
 
         assert last_json(httpx_mock) == {
             "document_ids": [str(DOC_ID)],
-            "workflow_ids": [str(WORKFLOW_ID)],
+            "agent_ids": [str(AGENT_ID)],
             "force_refresh": False,
             "capture_execution_log": False,
         }
-        assert result.job_ids == [JOB_ID]
-        assert result.run_ids == []
+        assert result.run_ids == [RUN_ID]
+        assert result.provenance_ids == []
 
     def test_empty_memory_list_is_sent_not_dropped(
         self, client: RagnerockClient, httpx_mock: Any
     ) -> None:
         httpx_mock.add_response(
-            method="POST", url=url("/api/jobs/"), json={"job_ids": [str(JOB_ID)]}
+            method="POST", url=url("/api/runs/"), json={"run_ids": [str(RUN_ID)]}
         )
 
-        client.jobs.create_manual(
+        client.runs.create(
             document_ids=[DOC_ID],
-            workflow_ids=[WORKFLOW_ID],
+            agent_ids=[AGENT_ID],
             recreate_memory_document_ids=[],
         )
 
@@ -135,12 +140,12 @@ class TestCreateManual:
     def test_explicit_mode(self, client: RagnerockClient, httpx_mock: Any) -> None:
         httpx_mock.add_response(
             method="POST",
-            url=url("/api/jobs/"),
-            json={"job_ids": [str(JOB_ID)], "run_ids": [str(RUN_ID)]},
+            url=url("/api/runs/"),
+            json={"run_ids": [str(RUN_ID)], "provenance_ids": [str(PROVENANCE_ID)]},
         )
 
-        result = client.jobs.create_manual(
-            workflow_id=WORKFLOW_ID,
+        result = client.runs.create(
+            agent_id=AGENT_ID,
             runs=[
                 {"inputs": {"report": DOC_ID, "params": {"k": 1}}, "client_key": "a"}
             ],
@@ -151,7 +156,7 @@ class TestCreateManual:
 
         body = last_json(httpx_mock)
         assert body == {
-            "workflow_id": str(WORKFLOW_ID),
+            "agent_id": str(AGENT_ID),
             "runs": [
                 {
                     "inputs": {"report": str(DOC_ID), "params": {"k": 1}},
@@ -165,91 +170,122 @@ class TestCreateManual:
         }
         # Explicit mode only: the fan-out fields stay unset.
         assert "document_ids" not in body
-        assert "workflow_ids" not in body
+        assert "agent_ids" not in body
+        # ``run_ids`` are the runs; ``provenance_ids`` are what each pinned.
         assert result.run_ids == [RUN_ID]
+        assert result.provenance_ids == [PROVENANCE_ID]
 
     def test_mixed_modes_surface_the_server_error(
         self, client: RagnerockClient, httpx_mock: Any
     ) -> None:
         httpx_mock.add_response(
             method="POST",
-            url=url("/api/jobs/"),
+            url=url("/api/runs/"),
             status_code=400,
             json={"detail": "Cannot mix fan-out and explicit fields"},
         )
 
         with pytest.raises(RagnerockError) as exc_info:
-            client.jobs.create_manual(
-                document_ids=[DOC_ID], workflow_id=WORKFLOW_ID, runs=[{"inputs": {}}]
+            client.runs.create(
+                document_ids=[DOC_ID], agent_id=AGENT_ID, runs=[{"inputs": {}}]
             )
         assert exc_info.value.status_code == 400
 
 
 class TestRunAllIngest:
-    def test_posts_workflow_and_resource(
+    def test_posts_agent_and_input(
         self, client: RagnerockClient, httpx_mock: Any
     ) -> None:
         httpx_mock.add_response(
             method="POST",
-            url=url("/api/jobs/ingest-run-all"),
-            json={"job_ids": [str(JOB_ID)], "run_ids": [str(RUN_ID)]},
+            url=url("/api/runs/ingest-run-all"),
+            json={"run_ids": [str(RUN_ID)], "provenance_ids": [str(PROVENANCE_ID)]},
         )
 
-        result = client.jobs.run_all_ingest(
-            workflow_id=WORKFLOW_ID, resource_id=RESOURCE_ID
-        )
+        result = client.runs.run_all_ingest(agent_id=AGENT_ID, input_id=INPUT_ID)
 
         assert last_json(httpx_mock) == {
-            "workflow_id": str(WORKFLOW_ID),
-            "resource_id": str(RESOURCE_ID),
+            "agent_id": str(AGENT_ID),
+            "input_id": str(INPUT_ID),
             "capture_execution_log": False,
         }
-        assert result.job_ids == [JOB_ID]
         assert result.run_ids == [RUN_ID]
+        assert result.provenance_ids == [PROVENANCE_ID]
 
 
 class TestLifecycleActions:
     def test_cancel(self, client: RagnerockClient, httpx_mock: Any) -> None:
         httpx_mock.add_response(
             method="POST",
-            url=url(f"/api/jobs/{JOB_ID}/cancel"),
-            json={"job_id": str(JOB_ID), "status": "cancelled"},
+            url=url(f"/api/runs/{RUN_ID}/cancel"),
+            json={"run_id": str(RUN_ID), "status": "cancelled"},
         )
 
-        assert client.jobs.cancel(JOB_ID).status == "cancelled"
+        assert client.runs.cancel(RUN_ID).status == "cancelled"
 
     def test_retry(self, client: RagnerockClient, httpx_mock: Any) -> None:
         httpx_mock.add_response(
             method="POST",
-            url=url(f"/api/jobs/{JOB_ID}/retry"),
-            json={"job_id": str(JOB_ID), "status": "retrying"},
+            url=url(f"/api/runs/{RUN_ID}/retry"),
+            json={"run_id": str(RUN_ID), "status": "retrying"},
         )
 
-        assert client.jobs.retry(JOB_ID).job_id == JOB_ID
+        assert client.runs.retry(RUN_ID).run_id == RUN_ID
+
+    def test_rerun_creates_a_new_run(
+        self, client: RagnerockClient, httpx_mock: Any
+    ) -> None:
+        new_run = uuid.UUID("00000000-0000-4000-8000-000000000811")
+        new_provenance = uuid.UUID("00000000-0000-4000-8000-000000000812")
+        httpx_mock.add_response(
+            method="POST",
+            url=url(f"/api/runs/{RUN_ID}/rerun"),
+            json={"run_ids": [str(new_run)], "provenance_ids": [str(new_provenance)]},
+        )
+
+        result = client.runs.rerun(RUN_ID)
+
+        assert last_request(httpx_mock).content == b""
+        assert result.run_ids == [new_run]
+        assert result.provenance_ids == [new_provenance]
+
+    def test_rerun_of_an_unfinished_run_surfaces_the_error(
+        self, client: RagnerockClient, httpx_mock: Any
+    ) -> None:
+        httpx_mock.add_response(
+            method="POST",
+            url=url(f"/api/runs/{RUN_ID}/rerun"),
+            status_code=409,
+            json={"detail": "Only a succeeded run can be re-run"},
+        )
+
+        with pytest.raises(RagnerockError) as exc_info:
+            client.runs.rerun(RUN_ID)
+        assert exc_info.value.status_code == 409
 
 
-class TestSinkDeliveries:
+class TestOutputDeliveries:
     def test_lists_groups_and_deliveries(
         self, client: RagnerockClient, httpx_mock: Any
     ) -> None:
         delivery_id = "00000000-0000-4000-8000-000000000a11"
         httpx_mock.add_response(
             method="GET",
-            url=url(f"/api/jobs/{JOB_ID}/sink-deliveries"),
+            url=url(f"/api/runs/{RUN_ID}/output-deliveries"),
             json={
                 "groups": [
                     {
-                        "sink_id": str(SINK_ID),
-                        "sink_name": "Weekly email",
+                        "output_id": str(OUTPUT_ID),
+                        "output_name": "Weekly email",
                         "kind": "email",
                         "status_counts": {"failed": 1, "succeeded": 2},
                         "notifications_sent": 0,
                         "deliveries": [
                             {
                                 "id": delivery_id,
-                                "sink_id": str(SINK_ID),
+                                "output_id": str(OUTPUT_ID),
+                                "provenance_id": str(PROVENANCE_ID),
                                 "run_id": str(RUN_ID),
-                                "job_id": str(JOB_ID),
                                 "kind": "email",
                                 "status": "failed",
                                 "reason": "send_rejected",
@@ -268,10 +304,10 @@ class TestSinkDeliveries:
             },
         )
 
-        result = client.jobs.sink_deliveries(JOB_ID)
+        result = client.runs.output_deliveries(RUN_ID)
 
         group = result.groups[0]
-        assert group.sink_id == SINK_ID
+        assert group.output_id == OUTPUT_ID
         assert group.status_counts == {"failed": 1, "succeeded": 2}
         delivery = group.deliveries[0]
         assert delivery.id == uuid.UUID(delivery_id)
@@ -280,31 +316,31 @@ class TestSinkDeliveries:
 
     def test_empty_run(self, client: RagnerockClient, httpx_mock: Any) -> None:
         httpx_mock.add_response(
-            method="GET", url=url(f"/api/jobs/{JOB_ID}/sink-deliveries"), json={}
+            method="GET", url=url(f"/api/runs/{RUN_ID}/output-deliveries"), json={}
         )
 
-        assert client.jobs.sink_deliveries(JOB_ID).groups == []
+        assert client.runs.output_deliveries(RUN_ID).groups == []
 
-    def test_retry_posts_the_sink(
+    def test_retry_posts_the_output(
         self, client: RagnerockClient, httpx_mock: Any
     ) -> None:
         httpx_mock.add_response(
             method="POST",
-            url=url(f"/api/jobs/{JOB_ID}/sink-deliveries/retry"),
+            url=url(f"/api/runs/{RUN_ID}/output-deliveries/retry"),
             json={"retried": 3},
         )
 
-        result = client.jobs.retry_sink_deliveries(JOB_ID, sink_id=SINK_ID)
+        result = client.runs.retry_output_deliveries(RUN_ID, output_id=OUTPUT_ID)
 
-        assert last_json(httpx_mock) == {"sink_id": str(SINK_ID)}
+        assert last_json(httpx_mock) == {"output_id": str(OUTPUT_ID)}
         assert result.retried == 3
 
 
 class FakeApi:
     """Serves the requests the manifest flow makes.
 
-    One workflow (with a ``report`` file resource and a ``params`` value
-    resource), a paginated document listing, and the job-creation endpoint.
+    One agent (with a ``report`` file input and a ``params`` value input), a
+    paginated document listing, and the run-creation endpoint.
     """
 
     def __init__(
@@ -312,17 +348,19 @@ class FakeApi:
     ) -> None:
         self.documents = documents
         self.page_size = page_size
-        self.job_requests: list[dict[str, Any]] = []
+        self.run_requests: list[dict[str, Any]] = []
         self.list_calls: list[dict[str, str]] = []
-        self.workflow_gets = 0
-        self.fail_job_request: int | None = None
+        self.agent_gets = 0
+        self.fail_run_request: int | None = None
+        self.run_ids: list[str] = []
+        self.provenance_ids: list[str] = []
 
-    def _workflow(self) -> dict[str, Any]:
+    def _agent(self) -> dict[str, Any]:
         return {
-            "id": str(WORKFLOW_ID),
+            "id": str(AGENT_ID),
             "project_id": PROJECT_ID,
-            "name": "wf",
-            "resources": [
+            "name": "triage",
+            "inputs": [
                 {"id": str(uuid.uuid4()), "name": "report", "type": "file"},
                 {"id": str(uuid.uuid4()), "name": "params", "type": "value"},
             ],
@@ -342,31 +380,31 @@ class FakeApi:
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
-        if request.method == "GET" and path == f"/api/workflows/{WORKFLOW_ID}":
-            self.workflow_gets += 1
-            return httpx.Response(200, json=self._workflow())
+        if request.method == "GET" and path == f"/api/agents/{AGENT_ID}":
+            self.agent_gets += 1
+            return httpx.Response(200, json=self._agent())
         if request.method == "GET" and path == "/api/documents/":
             params = dict(request.url.params)
             self.list_calls.append(params)
             page = self._document_page(int(params["skip"]), int(params["limit"]))
             return httpx.Response(200, json=page)
-        if request.method == "POST" and path == "/api/jobs/":
+        if request.method == "POST" and path == "/api/runs/":
             body = json.loads(request.content)
-            self.job_requests.append(body)
-            if self.fail_job_request == len(self.job_requests):
+            self.run_requests.append(body)
+            if self.fail_run_request == len(self.run_requests):
                 return httpx.Response(500, json={"detail": "Server error"})
             count = len(body["runs"])
+            run_ids = [str(uuid.uuid4()) for _ in range(count)]
+            provenance_ids = [str(uuid.uuid4()) for _ in range(count)]
+            self.run_ids.extend(run_ids)
+            self.provenance_ids.extend(provenance_ids)
             return httpx.Response(
-                200,
-                json={
-                    "job_ids": [str(uuid.uuid4()) for _ in range(count)],
-                    "run_ids": [str(uuid.uuid4()) for _ in range(count)],
-                },
+                200, json={"run_ids": run_ids, "provenance_ids": provenance_ids}
             )
         raise AssertionError(f"unexpected request {request.method} {path}")
 
 
-class TestCreateRunsFromManifest:
+class TestCreateFromManifest:
     def test_rows_chunked_under_one_group_with_ordered_ids(
         self, client: RagnerockClient, httpx_mock: Any
     ) -> None:
@@ -375,26 +413,27 @@ class TestCreateRunsFromManifest:
         doc_ids = [uuid.uuid4() for _ in range(5)]
         rows = [{"inputs": {"report": str(d)}} for d in doc_ids]
 
-        result = client.jobs.create_runs_from_manifest(
-            workflow_id=WORKFLOW_ID,
+        result = client.runs.create_from_manifest(
+            agent_id=AGENT_ID,
             manifest=rows,
             chunk_size=2,
             capture_execution_log=True,
         )
 
-        assert [len(r["runs"]) for r in fake.job_requests] == [2, 2, 1]
-        group_ids = {r["group_id"] for r in fake.job_requests}
+        assert [len(r["runs"]) for r in fake.run_requests] == [2, 2, 1]
+        group_ids = {r["group_id"] for r in fake.run_requests}
         assert len(group_ids) == 1
-        assert all(r["workflow_id"] == str(WORKFLOW_ID) for r in fake.job_requests)
-        assert all(r["capture_execution_log"] is True for r in fake.job_requests)
-        sent = [run for r in fake.job_requests for run in r["runs"]]
+        assert all(r["agent_id"] == str(AGENT_ID) for r in fake.run_requests)
+        assert all(r["capture_execution_log"] is True for r in fake.run_requests)
+        sent = [run for r in fake.run_requests for run in r["runs"]]
         assert [run["client_key"] for run in sent] == [f"row-{i}" for i in range(5)]
         assert [run["inputs"]["report"] for run in sent] == [str(d) for d in doc_ids]
-        assert len(result.job_ids) == 5
+        assert [str(i) for i in result.run_ids] == fake.run_ids
+        assert [str(i) for i in result.provenance_ids] == fake.provenance_ids
         assert len(result.run_ids) == 5
         # Id bindings never trigger a document-name lookup.
         assert fake.list_calls == []
-        assert fake.workflow_gets == 1
+        assert fake.agent_gets == 1
 
     def test_document_names_resolved_across_pages(
         self, client: RagnerockClient, httpx_mock: Any
@@ -407,11 +446,11 @@ class TestCreateRunsFromManifest:
             {"inputs": {"report": "doc-0.pdf"}},
         ]
 
-        client.jobs.create_runs_from_manifest(workflow_id=WORKFLOW_ID, manifest=rows)
+        client.runs.create_from_manifest(agent_id=AGENT_ID, manifest=rows)
 
-        runs = fake.job_requests[0]["runs"]
+        runs = fake.run_requests[0]["runs"]
         assert runs[0]["inputs"]["report"] == str(documents[2][1])
-        # Value resources pass through untouched, even when not a UUID.
+        # Value inputs pass through untouched, even when not a UUID.
         assert runs[0]["inputs"]["params"] == "free text"
         assert runs[1]["inputs"]["report"] == str(documents[0][1])
         assert [c["skip"] for c in fake.list_calls] == ["0", "2"]
@@ -424,11 +463,11 @@ class TestCreateRunsFromManifest:
         httpx_mock.add_callback(fake, is_reusable=True)
 
         with pytest.raises(ValueError, match=r"unknown document 'missing\.pdf'"):
-            client.jobs.create_runs_from_manifest(
-                workflow_id=WORKFLOW_ID,
+            client.runs.create_from_manifest(
+                agent_id=AGENT_ID,
                 manifest=[{"inputs": {"report": "missing.pdf"}}],
             )
-        assert fake.job_requests == []
+        assert fake.run_requests == []
 
     def test_ambiguous_document_name_rejected(
         self, client: RagnerockClient, httpx_mock: Any
@@ -437,10 +476,10 @@ class TestCreateRunsFromManifest:
         httpx_mock.add_callback(fake, is_reusable=True)
 
         with pytest.raises(ValueError, match=r"unknown document 'dup\.pdf'"):
-            client.jobs.create_runs_from_manifest(
-                workflow_id=WORKFLOW_ID, manifest=[{"inputs": {"report": "dup.pdf"}}]
+            client.runs.create_from_manifest(
+                agent_id=AGENT_ID, manifest=[{"inputs": {"report": "dup.pdf"}}]
             )
-        assert fake.job_requests == []
+        assert fake.run_requests == []
 
     @pytest.mark.parametrize("layout", ["jsonl", "array"])
     def test_manifest_file_formats(
@@ -459,34 +498,32 @@ class TestCreateRunsFromManifest:
         else:
             manifest.write_text(json.dumps(rows))
 
-        result = client.jobs.create_runs_from_manifest(
-            workflow_id=WORKFLOW_ID, manifest=manifest
-        )
+        result = client.runs.create_from_manifest(agent_id=AGENT_ID, manifest=manifest)
 
-        assert [run["inputs"] for run in fake.job_requests[0]["runs"]] == [
+        assert [run["inputs"] for run in fake.run_requests[0]["runs"]] == [
             r["inputs"] for r in rows
         ]
-        assert len(result.job_ids) == 2
+        assert len(result.run_ids) == 2
 
     def test_chunk_failure_propagates(
         self, client: RagnerockClient, httpx_mock: Any
     ) -> None:
         fake = FakeApi(documents=[])
-        fake.fail_job_request = 2
+        fake.fail_run_request = 2
         httpx_mock.add_callback(fake, is_reusable=True)
         rows = [{"inputs": {"report": str(uuid.uuid4())}} for _ in range(4)]
 
         with pytest.raises(RagnerockError) as exc_info:
-            client.jobs.create_runs_from_manifest(
-                workflow_id=WORKFLOW_ID, manifest=rows, chunk_size=2
+            client.runs.create_from_manifest(
+                agent_id=AGENT_ID, manifest=rows, chunk_size=2
             )
         assert exc_info.value.status_code == 500
-        assert len(fake.job_requests) == 2
+        assert len(fake.run_requests) == 2
 
     def test_rejects_non_positive_chunk_size(self, client: RagnerockClient) -> None:
         with pytest.raises(ValueError, match="chunk_size"):
-            client.jobs.create_runs_from_manifest(
-                workflow_id=WORKFLOW_ID, manifest=[], chunk_size=0
+            client.runs.create_from_manifest(
+                agent_id=AGENT_ID, manifest=[], chunk_size=0
             )
 
 
@@ -496,11 +533,11 @@ def test_list_drops_unset_status_filter(
     """An unset status filter is left out of the query string."""
     httpx_mock.add_response(
         method="GET",
-        url=url(f"/api/jobs/?project_id={PROJECT_ID}&skip=0&limit=50"),
-        json={"jobs": [], "total": 0, "skip": 0, "limit": 50},
+        url=url(f"/api/runs/?project_id={PROJECT_ID}&skip=0&limit=50"),
+        json={"runs": [], "total": 0, "skip": 0, "limit": 50},
     )
 
-    client.jobs.list(project_id=uuid.UUID(PROJECT_ID))
+    client.runs.list(project_id=uuid.UUID(PROJECT_ID))
 
     assert last_request(httpx_mock).method == "GET"
     assert "status_filter" not in last_params(httpx_mock)

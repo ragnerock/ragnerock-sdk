@@ -10,11 +10,11 @@ import yaml
 
 from ragnerock.cli.output import OutputFormat, render
 from ragnerock.cli.resources import resolve_kind
-from ragnerock.resources import ChunkType, Operator
+from ragnerock.resources import ChunkType, Task
 
 
-def _sample_operator() -> Operator:
-    return Operator(
+def _sample_task() -> Task:
+    return Task(
         id=UUID("00000000-0000-0000-0000-000000000601"),
         project_id=UUID("00000000-0000-0000-0000-000000000001"),
         name="sentiment",
@@ -28,29 +28,29 @@ def _sample_operator() -> Operator:
 
 
 def test_json_output_is_valid_json_array() -> None:
-    spec = resolve_kind("operator")
+    spec = resolve_kind("task")
     stream = io.StringIO()
-    render([_sample_operator()], spec, OutputFormat.JSON, stream=stream)
+    render([_sample_task()], spec, OutputFormat.JSON, stream=stream)
     parsed = json.loads(stream.getvalue())
     assert isinstance(parsed, list)
     assert parsed[0]["name"] == "sentiment"
 
 
 def test_yaml_output_is_a_plain_field_dump() -> None:
-    spec = resolve_kind("operator")
+    spec = resolve_kind("task")
     stream = io.StringIO()
-    render([_sample_operator()], spec, OutputFormat.YAML, stream=stream)
+    render([_sample_task()], spec, OutputFormat.YAML, stream=stream)
     doc = yaml.safe_load(stream.getvalue())
     assert "apiVersion" not in doc
     assert doc["name"] == "sentiment"
     assert doc["generation_prompt"] == "Classify..."
-    assert doc["operator_kind"] == "LLM"
+    assert doc["task_kind"] == "LLM"
 
 
 def test_yaml_multiple_items_emits_multi_doc() -> None:
-    spec = resolve_kind("operator")
-    a = _sample_operator()
-    b = _sample_operator()
+    spec = resolve_kind("task")
+    a = _sample_task()
+    b = _sample_task()
     b.name = "other"
     stream = io.StringIO()
     render([a, b], spec, OutputFormat.YAML, stream=stream)
@@ -59,9 +59,9 @@ def test_yaml_multiple_items_emits_multi_doc() -> None:
 
 
 def test_name_format_prints_one_per_line() -> None:
-    spec = resolve_kind("operator")
-    a = _sample_operator()
-    b = _sample_operator()
+    spec = resolve_kind("task")
+    a = _sample_task()
+    b = _sample_task()
     b.name = "other"
     stream = io.StringIO()
     render([a, b], spec, OutputFormat.NAME, stream=stream)
@@ -69,7 +69,7 @@ def test_name_format_prints_one_per_line() -> None:
 
 
 def test_table_empty_shows_placeholder() -> None:
-    spec = resolve_kind("operator")
+    spec = resolve_kind("task")
     stream = io.StringIO()
     render([], spec, OutputFormat.TABLE, stream=stream)
-    assert "No Operator resources" in stream.getvalue()
+    assert "No Task resources" in stream.getvalue()

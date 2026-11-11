@@ -10,40 +10,40 @@ from typing import Any
 import httpx
 
 from ragnerock.client._base import _drop_none, _parse_retry_after
-from ragnerock.client.skills import _SkillsSection
-from ragnerock.client.tools import _ToolsSection
-from ragnerock.client.assignments import _AssignmentsSection
-from ragnerock.client.notebooks import (
-    _ArtifactsSection,
-    _CellsSection,
-    _NotebooksSection,
-)
-from ragnerock.client.search import _SearchSection
-from ragnerock.client.workflow_artifacts import _WorkflowArtifactsSection
-from ragnerock.client.endpoints import _EndpointsSection
-from ragnerock.client.ingest import _IngestSourcesSection
+from ragnerock.client.agents import _AgentsSection
 from ragnerock.client.ai_configs import (
     _AIConfigsSection,
     _EmbeddingConfigSection,
     _ImageSummaryConfigSection,
 )
+from ragnerock.client.annotations import _AnnotationsSection
+from ragnerock.client.assignments import _AssignmentsSection
+from ragnerock.client.auth import _AuthSection
+from ragnerock.client.chunks import _ChunksSection
+from ragnerock.client.document_folders import _DocumentFoldersSection
+from ragnerock.client.documents import _DocumentsSection
+from ragnerock.client.endpoints import _EndpointsSection
+from ragnerock.client.gitops import _GitOpsSection
+from ragnerock.client.ingest import _IngestSourcesSection
+from ragnerock.client.notebooks import (
+    _ArtifactsSection,
+    _CellsSection,
+    _NotebooksSection,
+)
+from ragnerock.client.output_artifacts import _OutputArtifactsSection
+from ragnerock.client.pages import _PagesSection
+from ragnerock.client.projects import _ProjectsSection
+from ragnerock.client.queries import _QueriesSection
+from ragnerock.client.runs import _RunsSection
+from ragnerock.client.search import _SearchSection
+from ragnerock.client.skills import _SkillsSection
 from ragnerock.client.storage_configs import (
     _BlobConfigsSection,
     _DatabaseConfigsSection,
 )
+from ragnerock.client.tasks import _TasksSection
+from ragnerock.client.tools import _ToolsSection
 from ragnerock.client.web_access import _WebAccessSection
-from ragnerock.client.annotations import _AnnotationsSection
-from ragnerock.client.auth import _AuthSection
-from ragnerock.client.chunks import _ChunksSection
-from ragnerock.client.documents import _DocumentsSection
-from ragnerock.client.gitops import _GitOpsSection
-from ragnerock.client.groups import _GroupsSection
-from ragnerock.client.jobs import _JobsSection
-from ragnerock.client.operators import _OperatorsSection
-from ragnerock.client.pages import _PagesSection
-from ragnerock.client.projects import _ProjectsSection
-from ragnerock.client.queries import _QueriesSection
-from ragnerock.client.workflows import _WorkflowsSection
 from ragnerock.errors import raise_for_status
 
 _DEFAULT_MAX_RATE_LIMIT_RETRIES = 5
@@ -60,7 +60,7 @@ class RagnerockClient:
     """Low-level HTTP client for the Ragnerock API.
 
     Every endpoint is exposed as a method on a *section* property, e.g.
-    ``client.documents.get(...)`` or ``client.workflows.set_schedule(...)``.
+    ``client.documents.get(...)`` or ``client.agents.set_schedule(...)``.
     Sections are cheap views over the same pooled connection.
 
     Args:
@@ -388,9 +388,9 @@ class RagnerockClient:
         return _DocumentsSection(self)
 
     @property
-    def groups(self) -> _GroupsSection:
-        """Endpoints for document-group CRUD scoped by project."""
-        return _GroupsSection(self)
+    def document_folders(self) -> _DocumentFoldersSection:
+        """Endpoints for document-folder CRUD scoped by project."""
+        return _DocumentFoldersSection(self)
 
     @property
     def chunks(self) -> _ChunksSection:
@@ -408,45 +408,45 @@ class RagnerockClient:
         return _AnnotationsSection(self)
 
     @property
-    def operators(self) -> _OperatorsSection:
-        """Endpoints for operator (agent) CRUD."""
-        return _OperatorsSection(self)
+    def tasks(self) -> _TasksSection:
+        """Endpoints for task CRUD (``/api/tasks/...``)."""
+        return _TasksSection(self)
 
     @property
-    def workflows(self) -> _WorkflowsSection:
-        """Endpoints for workflows: CRUD, nodes, schedules, sinks, change requests."""
-        return _WorkflowsSection(self)
+    def agents(self) -> _AgentsSection:
+        """Endpoints for agents: CRUD, nodes, inputs, outputs, schedules, drafts, change requests."""
+        return _AgentsSection(self)
 
     @property
-    def jobs(self) -> _JobsSection:
-        """Endpoints for job creation, inspection, and lifecycle actions."""
-        return _JobsSection(self)
+    def runs(self) -> _RunsSection:
+        """Endpoints for run creation, inspection, and lifecycle actions."""
+        return _RunsSection(self)
 
     @property
     def queries(self) -> _QueriesSection:
         """Endpoints for annotation SQL queries and saved queries."""
         return _QueriesSection(self)
 
-    # -- agents and tools -------------------------------------------------------
+    # -- skills, tools, and conversations ---------------------------------------
 
     @property
     def skills(self) -> _SkillsSection:
-        """Endpoints for skills agents load on demand (``/api/skills/...``)."""
+        """Endpoints for skills tasks load on demand (``/api/skills/...``)."""
         return _SkillsSection(self)
 
     @property
     def tools(self) -> _ToolsSection:
-        """Endpoints for agent tools: MCP, connectors, REST (``/api/agent-tools/...``)."""
+        """Endpoints for tools: MCP, connectors, REST (``/api/tools/...``)."""
         return _ToolsSection(self)
 
     @property
     def assignments(self) -> _AssignmentsSection:
-        """Endpoints for agent assignments and agent questions."""
+        """Endpoints for task assignments and assignment questions."""
         return _AssignmentsSection(self)
 
     @property
     def notebooks(self) -> _NotebooksSection:
-        """Endpoints for notebooks and agent conversations (``/api/notebooks/...``)."""
+        """Endpoints for notebooks and task conversations (``/api/notebooks/...``)."""
         return _NotebooksSection(self)
 
     @property
@@ -467,13 +467,13 @@ class RagnerockClient:
         return _SearchSection(self)
 
     @property
-    def workflow_artifacts(self) -> _WorkflowArtifactsSection:
-        """Endpoints for files produced by workflow outputs."""
-        return _WorkflowArtifactsSection(self)
+    def output_artifacts(self) -> _OutputArtifactsSection:
+        """Endpoints for files produced by agent outputs (``/api/output-artifacts/...``)."""
+        return _OutputArtifactsSection(self)
 
     @property
     def endpoints(self) -> _EndpointsSection:
-        """Endpoints for deployed workflow and model-compatibility endpoints."""
+        """Endpoints for deployed agent and model-compatibility endpoints."""
         return _EndpointsSection(self)
 
     # -- ingestion --------------------------------------------------------------

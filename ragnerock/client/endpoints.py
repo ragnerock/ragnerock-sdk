@@ -16,7 +16,7 @@ from ragnerock.client._base import UNSET, _ApiModel, _body, _patch_body, _Sectio
 from ragnerock.enums import CompatFormat
 
 LATEST_SNAPSHOT_TAG = "latest"
-"""The snapshot reference that follows the source workflow's latest version."""
+"""The snapshot reference that follows the source agent's latest version."""
 
 _COMPAT_PATH_SUFFIXES: dict[CompatFormat, str] = {
     CompatFormat.OPENAI: "/openai/v1",
@@ -28,8 +28,8 @@ _COMPAT_PATH_SUFFIXES: dict[CompatFormat, str] = {
 class EndpointType(StrEnum):
     """What an endpoint exposes."""
 
-    WORKFLOW = "WORKFLOW"
-    """Submit inputs, run a snapshot of a workflow, and poll for its results."""
+    AGENT = "AGENT"
+    """Submit inputs, run a snapshot of an agent, and poll for its results."""
 
     MODEL_COMPAT = "MODEL_COMPAT"
     """Serve a configured model over an OpenAI, Anthropic, or Gemini wire format."""
@@ -58,14 +58,16 @@ class EndpointResponse(_ApiModel):
         description (str | None): Optional description.
         endpoint_type (str | None): An :class:`EndpointType` value.
         is_enabled (bool | None): Whether the endpoint accepts requests.
-        workflow_id (UUID | None): The snapshot workflow it runs (WORKFLOW).
-        source_workflow_id (UUID | None): The workflow it was deployed from.
+        agent_id (UUID | None): The snapshot agent it runs (AGENT).
+        source_agent_id (UUID | None): The agent it was deployed from.
         accepted_file_types (list[str] | None): Accepted file extensions.
         return_fields (list[dict[str, Any]] | None): Annotation fields returned.
         snapshot_tag (str | None): The snapshot it serves: ``"latest"``, a
             user tag, or ``None`` when pinned to ``active_snapshot_id``.
         active_snapshot_id (UUID | None): The snapshot currently served.
-        resources (list[dict[str, Any]]): The inputs a submission supplies.
+        inputs (list[dict[str, Any]]): The deployed snapshot's inputs: what a
+            submission supplies, one file part per file input and one field
+            per value input.
         compat_format (str | None): A :class:`~ragnerock.enums.CompatFormat`
             value (MODEL_COMPAT).
         ai_config_id (UUID | None): Bound AI provider config (MODEL_COMPAT).
@@ -74,6 +76,8 @@ class EndpointResponse(_ApiModel):
             (MODEL_COMPAT).
         ip_whitelist (list[str] | None): Allowed IP addresses / CIDRs.
         rate_limit_rpm (int | None): Requests-per-minute limit.
+        auto_archive_runs (bool | None): Whether runs are archived when they
+            finish.
         api_key_prefix (str | None): The visible prefix of the endpoint's key.
         api_key_expires_at (datetime | None): When the key expires.
         mcp_tool_name (str | None): The stored MCP run-tool name.
@@ -87,22 +91,22 @@ class EndpointResponse(_ApiModel):
     description: str | None = None
     endpoint_type: str | None = None
     is_enabled: bool | None = None
-    workflow_id: UUID | None = None
-    source_workflow_id: UUID | None = None
+    agent_id: UUID | None = None
+    source_agent_id: UUID | None = None
     accepted_file_types: list[str] | None = None
     return_fields: list[dict[str, Any]] | None = None
     include_content: bool | None = None
     ephemeral: bool | None = None
     snapshot_tag: str | None = None
     active_snapshot_id: UUID | None = None
-    resources: list[dict[str, Any]] = []
+    inputs: list[dict[str, Any]] = []
     compat_format: str | None = None
     ai_config_id: UUID | None = None
     model_name: str | None = None
     default_params: dict[str, Any] | None = None
     ip_whitelist: list[str] | None = None
     rate_limit_rpm: int | None = None
-    auto_archive_jobs: bool | None = None
+    auto_archive_runs: bool | None = None
     api_key_prefix: str | None = None
     api_key_expires_at: datetime | None = None
     mcp_tool_name: str | None = None
@@ -172,8 +176,7 @@ class EndpointExecutionResponse(_ApiModel):
     """One execution of an endpoint.
 
     Attributes:
-        id (UUID): The execution's id.
-        task_id (UUID | None): The task id callers poll (same as ``id``).
+        id (UUID): The execution's id: the ``task_id`` callers poll.
         request_id (UUID | None): The submission's request id.
         status (str | None): An :class:`EndpointTaskStatus` value.
         error_code (str | None): Machine-readable failure code.
@@ -181,7 +184,6 @@ class EndpointExecutionResponse(_ApiModel):
     """
 
     id: UUID
-    task_id: UUID | None = None
     request_id: UUID | None = None
     status: str | None = None
     created_at: datetime | None = None
@@ -244,7 +246,7 @@ class McpToolsPreviewResponse(_ApiModel):
         tools (list[McpToolDescriptor]): The descriptors, exactly as an MCP
             client discovers them.
         warnings (list[str]): Problems for the endpoint's owner, such as a
-            resource whose name collides with a run-tool argument.
+            input whose name collides with a run-tool argument.
         enabled (bool): Whether this deployment serves endpoint MCP at all.
         oauth_enabled (bool): Whether callers may sign in instead of using a key.
         default_wait_seconds (int | None): The run tool's default wait.
@@ -313,7 +315,8 @@ class EndpointTaskResult(_ApiModel):
         result (dict[str, Any] | None): The assembled result, on success.
         metadata (dict[str, Any] | None): The metadata the caller submitted.
         ragnerock_metadata (dict[str, Any] | None): Execution metering, on
-            success.
+            success. Its ``workflow_id`` key is the id of the agent that ran:
+            the public endpoint API keeps the old name.
         truncated (bool): Whether nested result collections were dropped to fit
             a size cap.
         error (EndpointTaskError | None): The failure, on failure.
@@ -333,7 +336,7 @@ class EndpointTaskResult(_ApiModel):
 
 
 class _EndpointsSection(_Section):
-    """Deployed workflow and model-compatibility endpoints.
+    """Deployed agent and model-compatibility endpoints.
 
     Management calls authenticate as the signed-in user. :meth:`submit` and
     :meth:`poll` are the endpoint's public API and authenticate with the
@@ -345,47 +348,47 @@ class _EndpointsSection(_Section):
         project_id: UUID,
         *,
         name: str,
-        workflow_id: UUID | None = None,
+        agent_id: UUID | None = None,
         accepted_file_types: list[str] | None = None,
         return_fields: list[dict[str, Any]] | None = None,
         description: str | None = None,
         include_content: bool = False,
         ephemeral: bool = False,
         snapshot_tag: str = LATEST_SNAPSHOT_TAG,
-        endpoint_type: str = EndpointType.WORKFLOW,
+        endpoint_type: str = EndpointType.AGENT,
         compat_format: str | None = None,
         ai_config_id: UUID | None = None,
         model_name: str | None = None,
         default_params: dict[str, Any] | None = None,
         ip_whitelist: list[str] | None = None,
         rate_limit_rpm: int = 60,
-        auto_archive_jobs: bool = False,
+        auto_archive_runs: bool = False,
         api_key_expires_in_days: int | None = None,
         mcp_tool_name: str | None = None,
         mcp_tool_description: str | None = None,
     ) -> EndpointCreateResponse:
         """Create an endpoint in a project.
 
-        Calls ``POST /api/projects/{project_id}/endpoints/``. ``WORKFLOW``
-        endpoints (the default) need ``workflow_id``, ``accepted_file_types``,
+        Calls ``POST /api/projects/{project_id}/endpoints/``. ``AGENT``
+        endpoints (the default) need ``agent_id``, ``accepted_file_types``,
         and ``return_fields``. ``MODEL_COMPAT`` endpoints need
         ``compat_format`` and ``model_name`` instead, and refuse the
-        workflow-only fields.
+        agent-only fields.
 
         Args:
             project_id (UUID): Project to create the endpoint in.
             name (str): Endpoint name.
-            workflow_id (UUID | None): Workflow to snapshot (WORKFLOW only).
+            agent_id (UUID | None): Agent to snapshot (AGENT only).
             accepted_file_types (list[str] | None): Accepted file extensions,
-                e.g. ``[".pdf"]`` (WORKFLOW only).
+                e.g. ``[".pdf"]`` (AGENT only).
             return_fields (list[dict[str, Any]] | None): Fields to return, each
-                ``{"operator_id": ..., "field_name": ...}`` (WORKFLOW only).
+                ``{"task_id": ..., "field_name": ...}`` (AGENT only).
             description (str | None): Optional description.
             include_content (bool): Include document content in results
-                (WORKFLOW only).
-            ephemeral (bool): Don't retain submitted documents (WORKFLOW only).
-            snapshot_tag (str): Which snapshot to serve (WORKFLOW only):
-                ``"latest"`` follows edits to the source workflow; any other
+                (AGENT only).
+            ephemeral (bool): Don't retain submitted documents (AGENT only).
+            snapshot_tag (str): Which snapshot to serve (AGENT only):
+                ``"latest"`` follows edits to the source agent; any other
                 tag is applied to the snapshot taken now.
             endpoint_type (str): An :class:`EndpointType` value.
             compat_format (str | None): A
@@ -400,11 +403,11 @@ class _EndpointsSection(_Section):
                 (MODEL_COMPAT only).
             ip_whitelist (list[str] | None): Allowed IP addresses / CIDRs.
             rate_limit_rpm (int): Requests-per-minute limit.
-            auto_archive_jobs (bool): Archive jobs automatically when they finish.
+            auto_archive_runs (bool): Archive runs automatically when they finish.
             api_key_expires_in_days (int | None): Optional key lifetime.
-            mcp_tool_name (str | None): The name of the MCP run tool (WORKFLOW
+            mcp_tool_name (str | None): The name of the MCP run tool (AGENT
                 only). Omit to derive one from ``name``.
-            mcp_tool_description (str | None): What the run tool does (WORKFLOW
+            mcp_tool_description (str | None): What the run tool does (AGENT
                 only); falls back to ``description``.
 
         Returns:
@@ -415,7 +418,7 @@ class _EndpointsSection(_Section):
             name=name,
             description=description,
             endpoint_type=endpoint_type,
-            workflow_id=workflow_id,
+            agent_id=agent_id,
             accepted_file_types=accepted_file_types,
             return_fields=return_fields,
             include_content=include_content,
@@ -427,7 +430,7 @@ class _EndpointsSection(_Section):
             default_params=default_params,
             ip_whitelist=ip_whitelist,
             rate_limit_rpm=rate_limit_rpm,
-            auto_archive_jobs=auto_archive_jobs,
+            auto_archive_runs=auto_archive_runs,
             api_key_expires_in_days=api_key_expires_in_days,
             mcp_tool_name=mcp_tool_name,
             mcp_tool_description=mcp_tool_description,
@@ -496,7 +499,7 @@ class _EndpointsSection(_Section):
         default_params: Any = UNSET,
         ip_whitelist: Any = UNSET,
         rate_limit_rpm: int | None = None,
-        auto_archive_jobs: bool | None = None,
+        auto_archive_runs: bool | None = None,
         is_enabled: bool | None = None,
         mcp_tool_name: Any = UNSET,
         mcp_tool_description: Any = UNSET,
@@ -517,15 +520,15 @@ class _EndpointsSection(_Section):
             name (str | None): New name.
             description (str | None): New description; ``None`` clears.
             accepted_file_types (list[str] | None): New accepted file types
-                (WORKFLOW only).
+                (AGENT only).
             return_fields (list[dict[str, Any]] | None): New return fields
-                (WORKFLOW only).
+                (AGENT only).
             include_content (bool | None): New include-content setting
-                (WORKFLOW only).
-            snapshot_tag (str | None): Which snapshot to serve (WORKFLOW only):
+                (AGENT only).
+            snapshot_tag (str | None): Which snapshot to serve (AGENT only):
                 ``"latest"``, a user tag, or ``None`` to pin the endpoint to the
                 snapshot it serves now.
-            ephemeral (bool | None): New ephemeral setting (WORKFLOW only).
+            ephemeral (bool | None): New ephemeral setting (AGENT only).
             ai_config_id (UUID | None): New AI config binding (MODEL_COMPAT
                 only); ``None`` returns to the Ragnerock-managed default.
             model_name (str | None): New backing model (MODEL_COMPAT only).
@@ -533,12 +536,13 @@ class _EndpointsSection(_Section):
                 (MODEL_COMPAT only); ``None`` clears.
             ip_whitelist (list[str] | None): New IP whitelist; ``None`` clears.
             rate_limit_rpm (int | None): New rate limit.
-            auto_archive_jobs (bool | None): New auto-archive setting.
+            auto_archive_runs (bool | None): Whether runs are archived when
+                they finish.
             is_enabled (bool | None): Enable or disable the endpoint.
-            mcp_tool_name (str | None): New MCP run-tool name (WORKFLOW only);
+            mcp_tool_name (str | None): New MCP run-tool name (AGENT only);
                 ``None`` returns to a name derived from the endpoint's name.
             mcp_tool_description (str | None): New run-tool description
-                (WORKFLOW only); ``None`` clears.
+                (AGENT only); ``None`` clears.
 
         Returns:
             EndpointResponse: The updated endpoint.
@@ -551,7 +555,7 @@ class _EndpointsSection(_Section):
             ephemeral=ephemeral,
             model_name=model_name,
             rate_limit_rpm=rate_limit_rpm,
-            auto_archive_jobs=auto_archive_jobs,
+            auto_archive_runs=auto_archive_runs,
             is_enabled=is_enabled,
         )
         payload.update(
@@ -587,10 +591,10 @@ class _EndpointsSection(_Section):
         )
 
     def redeploy(self, project_id: UUID, endpoint_id: UUID) -> EndpointResponse:
-        """Redeploy an endpoint from its source workflow.
+        """Redeploy an endpoint from its source agent.
 
         Calls ``POST /api/projects/{project_id}/endpoints/{endpoint_id}/redeploy``.
-        A new snapshot of the source workflow is taken and served.
+        A new snapshot of the source agent is taken and served.
 
         Args:
             project_id (UUID): Owning project.
@@ -701,13 +705,13 @@ class _EndpointsSection(_Section):
         return EndpointExecutionListResponse.model_validate(response.json())
 
     def mcp_url(self, endpoint_id: UUID) -> str:
-        """Build the MCP server URL for a ``WORKFLOW`` endpoint.
+        """Build the MCP server URL for an ``AGENT`` endpoint.
 
         Makes no request. Point any MCP client at the URL with the endpoint's
         API key as a bearer token.
 
         Args:
-            endpoint_id (UUID): The workflow endpoint's id.
+            endpoint_id (UUID): The agent endpoint's id.
 
         Returns:
             str: The absolute Streamable HTTP URL.
@@ -779,9 +783,9 @@ class _EndpointsSection(_Section):
             api_key (str): The endpoint's plaintext API key.
             file_path (str | Path | None): The file, for an endpoint with exactly
                 one file input.
-            values (dict[str, str] | None): Value inputs, keyed by resource name.
+            values (dict[str, str] | None): Value inputs, keyed by input name.
             file_parts (dict[str, str | Path] | None): File paths keyed by
-                resource name, for an endpoint with several file inputs.
+                input name, for an endpoint with several file inputs.
             metadata (dict[str, Any] | None): JSON metadata echoed back on the
                 result (max 16 KB).
             callback_url (str | None): A webhook to receive the result.

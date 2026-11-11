@@ -45,27 +45,27 @@ export RAGNEROCK_CONNECTION_STRING="ragnerock://you@example.com:pass@api.ragnero
 
 ragnerock get doc                                    # list documents as a table
 ragnerock apply -f manifests/                         # apply GitOps manifests
-ragnerock run sentiment-pipeline --documents q1.pdf --wait
+ragnerock run sentiment-pipeline --documents q1.pdf --wait   # run an agent
 ```
 
-See [CLI](cli.md) and [GitOps manifests](gitops.md) for the full command-line reference.
+See [CLI](cli.md) and [GitOps manifests](gitops.md) for the full command-line reference. Upgrading from 2.x? Ragnerock renamed workflows to agents, operators to tasks, and jobs to runs; see [Migrating to 3.0](migration.md#migrating-to-30).
 
 ```{toctree}
 :maxdepth: 1
 :caption: User guide:
+agents
 annotations.md
 cli.md
 connecting.md
 documents
 errors
 gitops.md
-jobs
 migration.md
-operators
 platform.md
 queries
+runs
 sessions
-workflows
+tasks
 ```
 
 ```{toctree}

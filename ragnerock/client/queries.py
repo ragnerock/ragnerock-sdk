@@ -73,8 +73,8 @@ class _QueriesSection(_Section):
 
         Args:
             project_id (UUID): Project whose annotations to query.
-            query (str): SQL text. Tables are operator names; columns come from
-                each operator's JSON schema.
+            query (str): SQL text. Tables are task names; columns come from
+                each task's JSON schema.
             format (str): Server-side result format. ``"dataframe"`` (the default)
                 returns rows and columns suitable for tabular conversion.
             limit (int): Maximum rows to return. Applied in SQL, so

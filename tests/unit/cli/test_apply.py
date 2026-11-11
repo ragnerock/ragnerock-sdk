@@ -12,7 +12,7 @@ from typer.testing import CliRunner
 
 from ragnerock.cli.app import app
 from tests.unit.conftest import TEST_HOST
-from tests.unit.gitops.helpers import agent_doc, secret_doc
+from tests.unit.gitops.helpers import secret_doc, task_doc
 
 APPLY_URL = f"{TEST_HOST}/api/gitops/apply"
 KEY_URL = f"{TEST_HOST}/api/gitops/sealing-key"
@@ -26,7 +26,7 @@ def _report(**overrides: Any) -> dict[str, Any]:
         "results": [
             {"kind": "Secret", "name": "creds", "action": "created"},
             {
-                "kind": "Agent",
+                "kind": "Task",
                 "name": "scorer",
                 "action": "updated",
                 "warnings": ["model binding 'primary' did not resolve"],
@@ -60,7 +60,7 @@ def env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def manifests(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A directory holding one Secret and one Agent."""
+    """A directory holding one Secret and one Task."""
     monkeypatch.setenv("CLI_TEST_SECRET", "from-env-value")
     (tmp_path / "secrets.yaml").write_text(
         yaml.safe_dump(
@@ -72,7 +72,7 @@ def manifests(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
             )
         )
     )
-    (tmp_path / "agent.yaml").write_text(yaml.safe_dump(agent_doc()))
+    (tmp_path / "task.yaml").write_text(yaml.safe_dump(task_doc()))
     return tmp_path
 
 
@@ -98,6 +98,38 @@ def test_dry_run_needs_no_config_and_prints_redacted_manifest(
     assert httpx_mock.get_requests() == []
 
 
+def test_dry_run_refuses_v1alpha1_offline(
+    runner: CliRunner,
+    httpx_mock: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("RAGNEROCK_HOST", raising=False)
+    old = {**task_doc(), "apiVersion": "ragnerock.com/v1alpha1", "kind": "Workflow"}
+    path = tmp_path / "70-agent.yaml"
+    path.write_text(yaml.safe_dump_all([task_doc("fine"), old]))
+    result = runner.invoke(app, ["apply", "-f", str(tmp_path), "--dry-run"])
+    assert result.exit_code == 1
+    assert (
+        f"GitOpsError: {path}: document[1]: This manifest uses apiVersion "
+        "v1alpha1; export it again from Ragnerock to get v1alpha2."
+    ) in result.stderr
+    assert "Migrating to 3.0" in result.stderr
+    assert result.stdout == ""
+    assert httpx_mock.get_requests() == []
+
+
+def test_apply_refuses_v1alpha1_before_contacting_the_server(
+    runner: CliRunner, httpx_mock: Any, env: None, tmp_path: Path
+) -> None:
+    old = {**task_doc(), "apiVersion": "ragnerock.com/v1alpha1", "kind": "Agent"}
+    (tmp_path / "task.yaml").write_text(yaml.safe_dump(old))
+    result = runner.invoke(app, ["apply", "-f", str(tmp_path), "--plan"])
+    assert result.exit_code == 1
+    assert "document[0]: This manifest uses apiVersion v1alpha1" in result.stderr
+    assert httpx_mock.get_requests() == []
+
+
 def test_apply_seals_uploads_and_reports(
     runner: CliRunner, httpx_mock: Any, env: None, manifests: Path, sealing_pem: str
 ) -> None:
@@ -108,7 +140,7 @@ def test_apply_seals_uploads_and_reports(
 
     assert result.exit_code == 0, result.stderr
     assert "Secret  creds  created" in result.stdout
-    assert "Agent   scorer  updated" in result.stdout
+    assert "Task    scorer  updated" in result.stdout
     assert "OK — 2 changed, 1 warning(s), 2 object(s)" in result.stdout
     assert "model binding 'primary' did not resolve" in result.stderr
     assert "fetched from the instance" in result.stderr
@@ -161,7 +193,7 @@ def test_pinned_key_from_env_var(
 def test_plan_reports_without_applying(
     runner: CliRunner, httpx_mock: Any, env: None, tmp_path: Path
 ) -> None:
-    (tmp_path / "agent.yaml").write_text(yaml.safe_dump(agent_doc()))
+    (tmp_path / "task.yaml").write_text(yaml.safe_dump(task_doc()))
     httpx_mock.add_response(
         method="POST", url=f"{APPLY_URL}?dry_run=true", json=_report(dry_run=True)
     )
@@ -173,16 +205,16 @@ def test_plan_reports_without_applying(
 def test_failed_apply_exits_1(
     runner: CliRunner, httpx_mock: Any, env: None, tmp_path: Path
 ) -> None:
-    (tmp_path / "agent.yaml").write_text(yaml.safe_dump(agent_doc()))
+    (tmp_path / "task.yaml").write_text(yaml.safe_dump(task_doc()))
     httpx_mock.add_response(
         method="POST",
         url=APPLY_URL,
         json=_report(
             ok=False,
-            structural_errors=["duplicate Agent 'scorer'"],
+            structural_errors=["duplicate Task 'scorer'"],
             results=[
                 {
-                    "kind": "Agent",
+                    "kind": "Task",
                     "name": "scorer",
                     "action": "error",
                     "errors": ["schema 'missing' does not exist"],
@@ -194,13 +226,13 @@ def test_failed_apply_exits_1(
     assert result.exit_code == 1
     assert "FAILED — 0 changed, 1 object(s)" in result.stdout
     assert "schema 'missing' does not exist" in result.stderr
-    assert "duplicate Agent 'scorer'" in result.stderr
+    assert "duplicate Task 'scorer'" in result.stderr
 
 
 def test_json_output(
     runner: CliRunner, httpx_mock: Any, env: None, tmp_path: Path
 ) -> None:
-    (tmp_path / "agent.yaml").write_text(yaml.safe_dump(agent_doc()))
+    (tmp_path / "task.yaml").write_text(yaml.safe_dump(task_doc()))
     httpx_mock.add_response(method="POST", url=APPLY_URL, json=_report())
     result = runner.invoke(app, ["apply", "-f", str(tmp_path), "-o", "json"])
     assert result.exit_code == 0, result.stderr
@@ -212,7 +244,7 @@ def test_json_output(
 def test_stdin_source(runner: CliRunner, httpx_mock: Any, env: None) -> None:
     httpx_mock.add_response(method="POST", url=APPLY_URL, json=_report())
     result = runner.invoke(
-        app, ["apply", "-f", "-"], input=yaml.safe_dump(agent_doc("piped"))
+        app, ["apply", "-f", "-"], input=yaml.safe_dump(task_doc("piped"))
     )
     assert result.exit_code == 0, result.stderr
     assert "piped" in httpx_mock.get_requests()[-1].content.decode()
@@ -221,7 +253,7 @@ def test_stdin_source(runner: CliRunner, httpx_mock: Any, env: None) -> None:
 def test_server_error_exits_2(
     runner: CliRunner, httpx_mock: Any, env: None, tmp_path: Path
 ) -> None:
-    (tmp_path / "agent.yaml").write_text(yaml.safe_dump(agent_doc()))
+    (tmp_path / "task.yaml").write_text(yaml.safe_dump(task_doc()))
     httpx_mock.add_response(
         method="POST", url=APPLY_URL, status_code=500, json={"detail": "boom"}
     )
@@ -233,7 +265,7 @@ def test_server_error_exits_2(
 def test_rejected_manifest_exits_1(
     runner: CliRunner, httpx_mock: Any, env: None, tmp_path: Path
 ) -> None:
-    (tmp_path / "agent.yaml").write_text(yaml.safe_dump(agent_doc()))
+    (tmp_path / "task.yaml").write_text(yaml.safe_dump(task_doc()))
     httpx_mock.add_response(
         method="POST", url=APPLY_URL, status_code=422, json={"detail": "bad spec"}
     )
@@ -270,12 +302,12 @@ def test_github_actions_annotations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
-    (tmp_path / "agent.yaml").write_text(yaml.safe_dump(agent_doc()))
+    (tmp_path / "task.yaml").write_text(yaml.safe_dump(task_doc()))
     httpx_mock.add_response(method="POST", url=APPLY_URL, json=_report())
     result = runner.invoke(app, ["apply", "-f", str(tmp_path)])
     assert result.exit_code == 0, result.stderr
     assert (
-        "::warning title=Agent scorer::model binding 'primary' did not resolve"
+        "::warning title=Task scorer::model binding 'primary' did not resolve"
         in result.stdout
     )
 
@@ -301,7 +333,7 @@ def test_missing_config_exits_1(
 ) -> None:
     for var in ("RAGNEROCK_CONNECTION_STRING", "RAGNEROCK_HOST", "RAGNEROCK_API_TOKEN"):
         monkeypatch.delenv(var, raising=False)
-    (tmp_path / "agent.yaml").write_text(yaml.safe_dump(agent_doc()))
+    (tmp_path / "task.yaml").write_text(yaml.safe_dump(task_doc()))
     result = runner.invoke(app, ["apply", "-f", str(tmp_path)])
     assert result.exit_code == 1
     assert "ConfigError" in result.stderr

@@ -1,4 +1,4 @@
-"""Tests for the agent tools section (``client.tools``)."""
+"""Tests for the tools section (``client.tools``)."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ import pytest
 from ragnerock.client import RagnerockClient
 from ragnerock.client.tools import (
     PROBE_TIMEOUT_SECONDS,
-    AgentToolDeleteResponse,
-    AgentToolKind,
-    AgentToolList,
-    AgentToolResponse,
+    ToolDeleteResponse,
+    ToolKind,
+    ToolList,
+    ToolResponse,
     McpAuthMode,
     McpConnector,
     McpConnectorList,
@@ -52,7 +52,7 @@ def _route(**overrides: Any) -> dict[str, Any]:
 
 
 def _tool(**overrides: Any) -> dict[str, Any]:
-    """Build an agent tool payload as the server returns it."""
+    """Build a tool payload as the server returns it."""
     payload: dict[str, Any] = {
         "id": TOOL_ID,
         "project_id": PROJECT_ID,
@@ -63,17 +63,18 @@ def _tool(**overrides: Any) -> dict[str, Any]:
         "description": "Customer records",
         "is_available": True,
         "notebook_enabled": False,
+        "task_enabled": True,
         "system_key": None,
-        "surfaces": ["notebook", "workflow"],
+        "surfaces": ["notebook", "task"],
         "functions": [
             {
                 "name": "crm__get_customer",
                 "description": "Fetch one customer by id.",
                 "source": "rest_route",
-                "surfaces": ["notebook", "workflow"],
+                "surfaces": ["notebook", "task"],
             }
         ],
-        "operator_count": 0,
+        "task_count": 0,
         "created_at": NOW,
         "updated_at": NOW,
     }
@@ -152,13 +153,13 @@ class TestList:
     def test_sends_project_and_paging(self, httpx_mock, client: RagnerockClient):
         httpx_mock.add_response(
             method="GET",
-            url=url(f"/api/agent-tools/?project_id={PROJECT_ID}&skip=0&limit=50"),
+            url=url(f"/api/tools/?project_id={PROJECT_ID}&skip=0&limit=50"),
             json={
                 "tools": [_tool()],
                 "total": 1,
                 "skip": 0,
                 "limit": 50,
-                "agent_tools_enabled": True,
+                "tools_enabled": True,
                 "oauth_available": True,
             },
         )
@@ -171,19 +172,21 @@ class TestList:
             "limit": "50",
         }
         assert last_request(httpx_mock).headers["Authorization"] == "Bearer rgnk_test"
-        assert isinstance(result, AgentToolList)
+        assert isinstance(result, ToolList)
         assert result.total == 1
         assert result.oauth_available is True
         assert result.tools[0].slug == "crm"
-        assert result.tools[0].kind == AgentToolKind.REST
+        assert result.tools[0].kind == ToolKind.REST
         assert result.tools[0].functions[0].name == "crm__get_customer"
+        assert result.tools[0].functions[0].surfaces == ["notebook", "task"]
+        assert result.tools[0].task_enabled is True
 
 
 class TestGet:
     def test_parses_masked_headers(self, httpx_mock, client: RagnerockClient):
         httpx_mock.add_response(
             method="GET",
-            url=url(f"/api/agent-tools/{TOOL_ID}"),
+            url=url(f"/api/tools/{TOOL_ID}"),
             json=_tool(
                 rest={
                     "base_url": "https://api.example.com/v1",
@@ -202,7 +205,7 @@ class TestGet:
 
         result = client.tools.get(UUID(TOOL_ID))
 
-        assert isinstance(result, AgentToolResponse)
+        assert isinstance(result, ToolResponse)
         assert result.rest is not None
         assert result.rest.base_url == "https://api.example.com/v1"
         assert result.rest.headers[0]["value"] is None
@@ -213,7 +216,7 @@ class TestCreateMcp:
     def test_body_and_probe_timeout(self, httpx_mock, client: RagnerockClient):
         httpx_mock.add_response(
             method="POST",
-            url=url("/api/agent-tools/"),
+            url=url("/api/tools/"),
             json=_tool(
                 kind="mcp",
                 slug="linear",
@@ -242,6 +245,7 @@ class TestCreateMcp:
             "description": "Issue tracker",
             "is_available": True,
             "notebook_enabled": True,
+            "task_enabled": True,
             "mcp": {
                 "url": "https://mcp.example.com/mcp",
                 "transport": "streamable_http",
@@ -260,7 +264,7 @@ class TestCreateMcp:
     def test_secret_headers_and_skill(self, httpx_mock, client: RagnerockClient):
         httpx_mock.add_response(
             method="POST",
-            url=url("/api/agent-tools/"),
+            url=url("/api/tools/"),
             json=_tool(kind="mcp", skill_id=SKILL_ID, mcp=_mcp_config()),
         )
 
@@ -282,10 +286,30 @@ class TestCreateMcp:
         assert "timeout_seconds" not in body["mcp"]
         assert result.skill_id == UUID(SKILL_ID)
 
+    def test_can_keep_the_tool_from_tasks(self, httpx_mock, client: RagnerockClient):
+        httpx_mock.add_response(
+            method="POST",
+            url=url("/api/tools/"),
+            json=_tool(kind="mcp", task_enabled=False, mcp=_mcp_config()),
+        )
+
+        result = client.tools.create_mcp(
+            project_id=UUID(PROJECT_ID),
+            name="Linear",
+            description="Issue tracker",
+            url="https://mcp.example.com/mcp",
+            task_enabled=False,
+        )
+
+        body = last_json(httpx_mock)
+        assert body["task_enabled"] is False
+        assert body["notebook_enabled"] is False
+        assert result.task_enabled is False
+
     def test_can_ask_for_a_sign_in(self, httpx_mock, client: RagnerockClient):
         httpx_mock.add_response(
             method="POST",
-            url=url("/api/agent-tools/"),
+            url=url("/api/tools/"),
             json=_tool(
                 kind="mcp",
                 functions=[],
@@ -312,7 +336,7 @@ class TestCreateMcp:
         assert last_json(httpx_mock)["mcp"]["auth"] == "oauth"
         assert result.mcp is not None
         assert result.mcp.auth == McpAuthMode.OAUTH
-        # Nobody has signed in yet, so the tool reaches no agent.
+        # Nobody has signed in yet, so the tool reaches no task.
         assert result.mcp.oauth is not None
         assert result.mcp.oauth.status == "disconnected"
         assert result.functions == []
@@ -322,7 +346,7 @@ class TestConnectors:
     def test_the_catalog_parses(self, httpx_mock, client: RagnerockClient):
         httpx_mock.add_response(
             method="GET",
-            url=url(f"/api/agent-tools/connectors?project_id={PROJECT_ID}"),
+            url=url(f"/api/tools/connectors?project_id={PROJECT_ID}"),
             json=_CATALOG,
         )
 
@@ -340,11 +364,11 @@ class TestConnectors:
     ):
         httpx_mock.add_response(
             method="GET",
-            url=url(f"/api/agent-tools/connectors?project_id={PROJECT_ID}"),
+            url=url(f"/api/tools/connectors?project_id={PROJECT_ID}"),
             json=_CATALOG,
         )
         httpx_mock.add_response(
-            method="POST", url=url("/api/agent-tools/"), json=_connector_tool()
+            method="POST", url=url("/api/tools/"), json=_connector_tool()
         )
 
         result = client.tools.create_connector(
@@ -363,6 +387,7 @@ class TestConnectors:
             "description": "Monitors, logs, metrics, and incidents in Datadog.",
             "is_available": True,
             "notebook_enabled": False,
+            "task_enabled": True,
             "connector": {
                 "connector": "datadog",
                 "parameters": {"site": "datadoghq.eu"},
@@ -378,7 +403,7 @@ class TestConnectors:
         self, httpx_mock, client: RagnerockClient
     ):
         httpx_mock.add_response(
-            method="POST", url=url("/api/agent-tools/"), json=_connector_tool()
+            method="POST", url=url("/api/tools/"), json=_connector_tool()
         )
 
         client.tools.create_connector(
@@ -398,12 +423,32 @@ class TestConnectors:
         # A connector without settings still sends an empty mapping.
         assert body["connector"] == {"connector": "datadog", "parameters": {}}
 
+    def test_create_can_keep_the_tool_from_tasks(
+        self, httpx_mock, client: RagnerockClient
+    ):
+        httpx_mock.add_response(
+            method="POST", url=url("/api/tools/"), json=_connector_tool()
+        )
+
+        client.tools.create_connector(
+            project_id=UUID(PROJECT_ID),
+            connector="datadog",
+            name="EU Datadog",
+            description="Production monitors.",
+            notebook_enabled=True,
+            task_enabled=False,
+        )
+
+        body = last_json(httpx_mock)
+        assert body["notebook_enabled"] is True
+        assert body["task_enabled"] is False
+
     def test_create_refuses_a_connector_the_catalog_lacks(
         self, httpx_mock, client: RagnerockClient
     ):
         httpx_mock.add_response(
             method="GET",
-            url=url(f"/api/agent-tools/connectors?project_id={PROJECT_ID}"),
+            url=url(f"/api/tools/connectors?project_id={PROJECT_ID}"),
             json=_CATALOG,
         )
 
@@ -419,9 +464,7 @@ class TestCreateRest:
     def test_body_carries_the_kind_and_routes(
         self, httpx_mock, client: RagnerockClient
     ):
-        httpx_mock.add_response(
-            method="POST", url=url("/api/agent-tools/"), json=_tool()
-        )
+        httpx_mock.add_response(method="POST", url=url("/api/tools/"), json=_tool())
 
         result = client.tools.create_rest(
             project_id=UUID(PROJECT_ID),
@@ -438,6 +481,7 @@ class TestCreateRest:
         # Omitted: the server derives it from the name.
         assert "slug" not in body
         assert body["notebook_enabled"] is False
+        assert body["task_enabled"] is True
         assert body["rest"] == {
             "base_url": "https://api.example.com/v1",
             "headers": [
@@ -448,9 +492,7 @@ class TestCreateRest:
         assert result.functions[0].source == "rest_route"
 
     def test_uses_the_default_timeout(self, httpx_mock, client: RagnerockClient):
-        httpx_mock.add_response(
-            method="POST", url=url("/api/agent-tools/"), json=_tool()
-        )
+        httpx_mock.add_response(method="POST", url=url("/api/tools/"), json=_tool())
 
         client.tools.create_rest(
             project_id=UUID(PROJECT_ID),
@@ -463,11 +505,28 @@ class TestCreateRest:
         assert last_json(httpx_mock)["rest"]["headers"] == []
         assert _read_timeout(httpx_mock) < PROBE_TIMEOUT_SECONDS
 
+    def test_can_keep_the_tool_from_tasks(self, httpx_mock, client: RagnerockClient):
+        httpx_mock.add_response(
+            method="POST", url=url("/api/tools/"), json=_tool(task_enabled=False)
+        )
+
+        result = client.tools.create_rest(
+            project_id=UUID(PROJECT_ID),
+            name="CRM API",
+            description="Customer records",
+            base_url="https://api.example.com/v1",
+            routes=[_route()],
+            task_enabled=False,
+        )
+
+        assert last_json(httpx_mock)["task_enabled"] is False
+        assert result.task_enabled is False
+
 
 class TestUpdate:
     def _body(self, httpx_mock, client: RagnerockClient, **kwargs: Any) -> Any:
         httpx_mock.add_response(
-            method="PUT", url=url(f"/api/agent-tools/{TOOL_ID}"), json=_tool()
+            method="PUT", url=url(f"/api/tools/{TOOL_ID}"), json=_tool()
         )
         client.tools.update(UUID(TOOL_ID), **kwargs)
         assert _read_timeout(httpx_mock) == PROBE_TIMEOUT_SECONDS
@@ -482,6 +541,14 @@ class TestUpdate:
             httpx_mock, client, is_available=False, notebook_enabled=False
         )
         assert body == {"is_available": False, "notebook_enabled": False}
+
+    def test_task_exposure_is_sent(self, httpx_mock, client: RagnerockClient):
+        assert self._body(httpx_mock, client, task_enabled=False) == {
+            "task_enabled": False
+        }
+        assert self._body(httpx_mock, client, task_enabled=True) == {
+            "task_enabled": True
+        }
 
     def test_config_block_is_sent_as_given(self, httpx_mock, client: RagnerockClient):
         body = self._body(
@@ -526,19 +593,19 @@ class TestUpdate:
 
 
 class TestDelete:
-    def test_reports_unlinked_agents(self, httpx_mock, client: RagnerockClient):
+    def test_reports_unlinked_tasks(self, httpx_mock, client: RagnerockClient):
         httpx_mock.add_response(
             method="DELETE",
-            url=url(f"/api/agent-tools/{TOOL_ID}"),
-            json={"id": TOOL_ID, "operator_count": 3},
+            url=url(f"/api/tools/{TOOL_ID}"),
+            json={"id": TOOL_ID, "task_count": 3},
         )
 
         result = client.tools.delete(UUID(TOOL_ID))
 
         assert last_request(httpx_mock).method == "DELETE"
-        assert isinstance(result, AgentToolDeleteResponse)
+        assert isinstance(result, ToolDeleteResponse)
         assert result.id == UUID(TOOL_ID)
-        assert result.operator_count == 3
+        assert result.task_count == 3
 
 
 class TestOAuth:
@@ -555,7 +622,7 @@ class TestOAuth:
     ):
         httpx_mock.add_response(
             method="POST",
-            url=url(f"/api/agent-tools/{TOOL_ID}/oauth/start"),
+            url=url(f"/api/tools/{TOOL_ID}/oauth/start"),
             json=self._REDIRECT,
         )
 
@@ -574,7 +641,7 @@ class TestOAuth:
     ):
         httpx_mock.add_response(
             method="POST",
-            url=url(f"/api/agent-tools/{TOOL_ID}/oauth/start"),
+            url=url(f"/api/tools/{TOOL_ID}/oauth/start"),
             json=self._REDIRECT,
         )
 
@@ -587,7 +654,7 @@ class TestOAuth:
     ):
         httpx_mock.add_response(
             method="POST",
-            url=url(f"/api/agent-tools/{TOOL_ID}/oauth/start"),
+            url=url(f"/api/tools/{TOOL_ID}/oauth/start"),
             json={
                 "outcome": "credentials_required",
                 "authorization_url": None,
@@ -609,7 +676,7 @@ class TestOAuth:
     ):
         httpx_mock.add_response(
             method="DELETE",
-            url=url(f"/api/agent-tools/{TOOL_ID}/oauth"),
+            url=url(f"/api/tools/{TOOL_ID}/oauth"),
             json=_tool(
                 kind="mcp",
                 mcp=_mcp_config(
@@ -642,7 +709,7 @@ class TestProbes:
     def test_discover_posts_without_a_body(self, httpx_mock, client: RagnerockClient):
         httpx_mock.add_response(
             method="POST",
-            url=url(f"/api/agent-tools/{TOOL_ID}/discover"),
+            url=url(f"/api/tools/{TOOL_ID}/discover"),
             json={
                 "functions": [
                     {
@@ -673,7 +740,7 @@ class TestProbes:
     ):
         httpx_mock.add_response(
             method="POST",
-            url=url("/api/agent-tools/mcp/parse-config"),
+            url=url("/api/tools/mcp/parse-config"),
             json={
                 "servers": [
                     {
@@ -705,7 +772,7 @@ class TestProbes:
     ):
         httpx_mock.add_response(
             method="POST",
-            url=url("/api/agent-tools/mcp/discover"),
+            url=url("/api/tools/mcp/discover"),
             json={
                 "functions": [],
                 "discovered_at": NOW,
@@ -736,7 +803,7 @@ class TestProbes:
     def test_route_test_sends_flat_arguments(self, httpx_mock, client: RagnerockClient):
         httpx_mock.add_response(
             method="POST",
-            url=url("/api/agent-tools/rest/test"),
+            url=url("/api/tools/rest/test"),
             json={
                 "ok": True,
                 "status_code": 200,
@@ -770,7 +837,7 @@ class TestProbes:
     def test_route_test_with_a_saved_tool(self, httpx_mock, client: RagnerockClient):
         httpx_mock.add_response(
             method="POST",
-            url=url("/api/agent-tools/rest/test"),
+            url=url("/api/tools/rest/test"),
             json={
                 "ok": False,
                 "status_code": 401,

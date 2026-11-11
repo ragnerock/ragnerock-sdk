@@ -44,12 +44,12 @@
    :show-inheritance:
 ```
 
-## Document groups
+## Document folders
 
 ```{eval-rst}
-.. automodule:: ragnerock.client.groups
+.. automodule:: ragnerock.client.document_folders
    :members:
-   :private-members: _GroupsSection
+   :private-members: _DocumentFoldersSection
    :show-inheritance:
 ```
 
@@ -80,12 +80,12 @@
    :show-inheritance:
 ```
 
-## Operators
+## Tasks
 
 ```{eval-rst}
-.. automodule:: ragnerock.client.operators
+.. automodule:: ragnerock.client.tasks
    :members:
-   :private-members: _OperatorsSection
+   :private-members: _TasksSection
    :show-inheritance:
 ```
 
@@ -98,7 +98,7 @@
    :show-inheritance:
 ```
 
-## Agent tools
+## Tools
 
 ```{eval-rst}
 .. automodule:: ragnerock.client.tools
@@ -107,30 +107,30 @@
    :show-inheritance:
 ```
 
-## Workflows
+## Agents
 
 ```{eval-rst}
-.. automodule:: ragnerock.client.workflows
+.. automodule:: ragnerock.client.agents
    :members:
-   :private-members: _WorkflowChangeRequestsSection, _WorkflowsSection
+   :private-members: _AgentChangeRequestsSection, _AgentsSection
    :show-inheritance:
 ```
 
-## Workflow artifacts
+## Output artifacts
 
 ```{eval-rst}
-.. automodule:: ragnerock.client.workflow_artifacts
+.. automodule:: ragnerock.client.output_artifacts
    :members:
-   :private-members: _WorkflowArtifactsSection
+   :private-members: _OutputArtifactsSection
    :show-inheritance:
 ```
 
-## Jobs
+## Runs
 
 ```{eval-rst}
-.. automodule:: ragnerock.client.jobs
+.. automodule:: ragnerock.client.runs
    :members:
-   :private-members: _JobsSection
+   :private-members: _RunsSection
    :show-inheritance:
 ```
 

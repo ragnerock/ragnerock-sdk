@@ -1,6 +1,6 @@
 # GitOps manifests
 
-Ragnerock configuration — secrets, AI and storage provider configs, schemas, skills, agents, workflows, endpoints, and ingest configs — can be declared as YAML and applied from the command line or from Python. Keep the manifests in a repository and apply them in CI, and every change to your Ragnerock setup is reviewed, versioned, and reproducible.
+Ragnerock configuration — projects, secrets, AI and storage provider configs, roles and policies, schemas, skills, tasks, agents, endpoints, and ingest configs — can be declared as YAML and applied from the command line or from Python. Keep the manifests in a repository and apply them in CI, and every change to your Ragnerock setup is reviewed, versioned, and reproducible.
 
 ```bash
 ragnerock apply -f manifests/
@@ -10,16 +10,16 @@ Apply is an **upsert by name**: objects that don't exist yet are created, existi
 
 ## Manifest shape
 
-Every manifest is a YAML document in the `ragnerock.com/` API group:
+Every manifest is a YAML document in the `ragnerock.com/` API group. The current version is `ragnerock.com/v1alpha2`:
 
 ```yaml
-apiVersion: ragnerock.com/v1alpha1
-kind: Agent
+apiVersion: ragnerock.com/v1alpha2
+kind: Task
 metadata:
   name: earnings_sentiment
   annotations:
     ragnerock.com/project: alpha_research   # project-scoped kinds only
-    ragnerock.com/folder: agents            # optional
+    ragnerock.com/folder: tasks             # optional
 spec:
   description: "Extracts sentiment from earnings calls"
   generationPrompt: "Classify the sentiment of this earnings call excerpt."
@@ -33,26 +33,43 @@ spec:
 
 Only documents whose `apiVersion` starts with `ragnerock.com/` are applied, so manifests can sit anywhere in a repository alongside CI configs, Kubernetes manifests, and other YAML — point `apply` at the repository root if you like.
 
+A document still on the retired `ragnerock.com/v1alpha1` is refused on the client, before anything is uploaded (so `--dry-run` refuses it too). The error names the file and the document's position in it, counting from zero:
+
+```text
+GitOpsError: manifests/agents.yaml: document[0]: This manifest uses apiVersion v1alpha1; export it again from Ragnerock to get v1alpha2. (Suggestion: In v1alpha2, a `Task` is what v1alpha1 called an `Agent`, and an `Agent` is what it called a `Workflow`; several spec fields were renamed too. See 'Migrating to 3.0' in the SDK documentation.)
+```
+
+Re-export the objects from Ragnerock, or update the manifests by hand with the tables in [Migrating to 3.0](migration.md#gitops-manifests). Any other version is passed through for the server to judge. Both versions are exported as constants: {data}`~ragnerock.gitops.discovery.API_VERSION` and {data}`~ragnerock.gitops.discovery.RETIRED_API_VERSIONS` (also importable from `ragnerock.gitops`).
+
 ### Kinds
 
 | Kind | Scope | What it declares |
 | --- | --- | --- |
+| `Project` | account | A project, its owner, and how long succeeded runs are kept before they're archived (`autoArchiveSucceededRunsAfterDays`). |
 | `Secret` | account | Credentials, referenced by other kinds via `secretKeyRef`. See [Secrets](#secrets). |
 | `AIProviderConfig` | account | A bring-your-own LLM provider (and optional embedding model). |
 | `BlobProviderConfig` | account | Bring-your-own object storage. |
 | `DBProviderConfig` | account | Bring-your-own database (BigQuery, PostgreSQL, …). |
-| `Schema` | project | An output schema agents write to, or (`isMemory: true`) an agent-memory schema. |
-| `Skill` | project | An instruction package agents load on demand. |
-| `Agent` | project | An LLM agent (`generationPrompt`) or a code agent (`operatorKind: code` + `codeSource`). Agents are called *operators* in the Python SDK. |
-| `Workflow` | project | A DAG of agent nodes, with conditions, retries, and decorators. |
-| `Endpoint` | project | A deployed workflow served over HTTP. |
+| `WebAccessConfig` | account | Whether the account may fetch and search the web, and its search-provider credential. |
+| `Role` | account | A named role. Its members are bound by a `RoleAssignment`. |
+| `RoleAssignment` | account | The users (`members`) and `teams` in a role. Additive. |
+| `Policy` | account | `permissions` (IAM verbs) on `resources` (IAM nouns, e.g. `task/*`). Its principals are bound by a `PolicyAssignment`. |
+| `PolicyAssignment` | account | The `role:`, `team:`, and `user:` principals a policy grants to. Additive. |
+| `Schema` | project | An output schema tasks write to, or (`isMemory: true`) a memory schema. |
+| `Skill` | project | An instruction package tasks load on demand. |
+| `Tool` | project | A tool tasks and notebooks can call; `taskEnabled` controls whether tasks may use it. |
+| `Task` | project | An LLM task (`generationPrompt`) or a code task (`taskKind: code` + `codeSource`). |
+| `Agent` | project | A DAG of task nodes (`nodes[].task`), with conditions, retries, decorators, `inputs`, and `outputs`. |
+| `Endpoint` | project | A deployed agent (`sourceAgent`) served over HTTP. |
 | `IngestConfig` | project | A recurring ingest source (e.g. an S3 sync). |
 
-[`examples/gitops/`](https://github.com/ragnerock/ragnerock-sdk/tree/main/examples/gitops) has a complete, internally consistent set exercising every kind above.
+[`examples/gitops/`](https://github.com/ragnerock/ragnerock-sdk/tree/main/examples/gitops) has a complete, internally consistent set covering every kind above except `Tool` and `WebAccessConfig`.
+
+A `Policy`'s `resources` are `<noun>/*`, `<noun>/<project>/<id>` (either part may be `*`), or `*`. The nouns are the API's: `document`, `documentfolder`, `task`, `agent`, `run`, `annotation`, `schema`, and so on.
 
 ### Ordering and references
 
-All documents found across every `-f` source are uploaded **together, in one request**. The server sorts them by kind before applying (secrets and provider configs, then schemas, skills, agents, workflows, endpoints, ingest configs), so file names and document order don't matter. References resolve across files: a `secretKeyRef` in `configs.yaml` finds a `Secret` declared in `secrets.yaml`, and a workflow node's `agent` finds an `Agent` declared anywhere in the set.
+All documents found across every `-f` source are uploaded **together, in one request**. The server sorts them by kind before applying (the project, secrets and provider configs, roles and policies, then schemas, skills, tasks, agents, endpoints, and ingest configs), so file names and document order don't matter. References resolve across files: a `secretKeyRef` in `configs.yaml` finds a `Secret` declared in `secrets.yaml`, and an agent node's `task` finds a `Task` declared anywhere in the set.
 
 ## Secrets
 
@@ -68,7 +85,7 @@ A `Secret` holds key/value credentials. Write each value from one of six sources
 | `fromAzureKeyVault` | Azure Key Vault |
 
 ```yaml
-apiVersion: ragnerock.com/v1alpha1
+apiVersion: ragnerock.com/v1alpha2
 kind: Secret
 metadata:
   name: llm_credentials
@@ -144,7 +161,7 @@ Two rehearsal modes answer different questions:
 ragnerock apply -f manifests/ --dry-run
 ```
 
-`--plan` — *what would change?* Uploads to your real account, has the server validate everything and report what it would create or update, then rolls the whole apply back. Because it runs against the account, it catches problems a dry run can't: an agent referencing a schema that doesn't exist, a model binding that won't resolve, a permission you lack.
+`--plan` — *what would change?* Uploads to your real account, has the server validate everything and report what it would create or update, then rolls the whole apply back. Because it runs against the account, it catches problems a dry run can't: a task referencing a schema that doesn't exist, a model binding that won't resolve, a permission you lack.
 
 ```bash
 ragnerock apply -f manifests/ --plan
@@ -155,10 +172,10 @@ ragnerock apply -f manifests/ --plan
 ```text
   Secret            llm_credentials      created
   AIProviderConfig  anthropic_primary    unchanged
-  Agent             earnings_sentiment   updated
+  Task              earnings_sentiment   updated
       ⚠ model binding 'anthropic_primary' did not resolve in this account
-  Workflow          filing_pipeline      error
-      ↳ node 'recheck': agent 'missing_agent' does not exist
+  Agent             filing_pipeline      error
+      ↳ node 'recheck': task 'missing_task' does not exist
 
 FAILED — 2 changed, 1 warning(s), 4 object(s)
 ```
@@ -170,7 +187,7 @@ FAILED — 2 changed, 1 warning(s), 4 object(s)
 
 An `Endpoint` created by apply gets a server-generated API key that is never returned in the report; rotate it from the endpoint's page (or `client.endpoints.regenerate_key(...)`) to get one.
 
-The token's user needs `create` permission on each kind to add an object, and `update` to change an existing one.
+The token's user needs `create` permission on each kind's IAM noun to add an object, and `update` to change an existing one.
 
 ## Running in CI
 
@@ -204,7 +221,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
 ```
 
-Under GitHub Actions, `apply` registers every resolved secret value (and each line of multi-line values) for log masking before anything else can print it, and raises each per-object warning as an annotation on the run summary. Finding no Ragnerock manifests is a clean no-op, so the job is safe to run on every push.
+Under GitHub Actions, `apply` registers every resolved secret value (and each line of multi-line values) for log masking before anything else can print it, and raises each per-object warning as an annotation on the Actions summary page. Finding no Ragnerock manifests is a clean no-op, so the job is safe to run on every push.
 
 ## From Python
 

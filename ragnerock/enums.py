@@ -1,7 +1,7 @@
 """Wire enums for API areas the session layer doesn't model.
 
 Client methods accept either these members or their plain string values.
-Enums tied to a session resource (``ChunkType``, ``OperatorKind``,
+Enums tied to a session resource (``ChunkType``, ``TaskKind``,
 ``DocumentStatus``, ...) live with that resource in :mod:`ragnerock.resources`.
 """
 

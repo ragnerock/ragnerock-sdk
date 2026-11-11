@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ragnerock.resources.agent import Agent, AgentNode, AgentSchedule
 from ragnerock.resources.annotation import Annotation
 from ragnerock.resources.base import _Resource
 from ragnerock.resources.chunk import Chunk, ChunkType
@@ -13,35 +14,34 @@ from ragnerock.resources.condition import (
 )
 from ragnerock.resources.document import (
     Document,
-    DocumentGroup,
+    DocumentFolder,
     DocumentStatus,
     FileType,
 )
-from ragnerock.resources.job import Job, JobStatus, JobType
-from ragnerock.resources.operator import Operator, OperatorKind
 from ragnerock.resources.page import Page
-from ragnerock.resources.workflow import Workflow, WorkflowNode, WorkflowSchedule
+from ragnerock.resources.run import Run, RunKind, RunStatus
+from ragnerock.resources.task import Task, TaskKind
 
 __all__ = [
+    "Agent",
+    "AgentNode",
+    "AgentSchedule",
     "Annotation",
     "Chunk",
     "ChunkType",
     "ComparisonOp",
     "Document",
-    "DocumentGroup",
+    "DocumentFolder",
     "DocumentStatus",
     "FileType",
-    "Job",
-    "JobStatus",
-    "JobType",
     "ListOp",
     "LogicalOp",
-    "Operator",
-    "OperatorKind",
     "Page",
-    "Workflow",
-    "WorkflowNode",
-    "WorkflowSchedule",
-    "_Resource",
+    "Run",
+    "RunKind",
+    "RunStatus",
+    "Task",
+    "TaskKind",
     "compile_condition",
+    "_Resource",
 ]

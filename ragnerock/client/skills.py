@@ -9,17 +9,18 @@ from ragnerock.client._base import _ApiModel, _body, _Section
 
 
 class SkillResponse(_ApiModel):
-    """A skill: a project-scoped instruction package agents load on demand.
+    """A skill: a project-scoped instruction package tasks load on demand.
 
     Attributes:
         id (UUID): The skill's id.
         project_id (UUID | None): Owning project.
         name (str): Display and load name.
-        description (str | None): The discovery text agents match tasks against.
-        body (str | None): The markdown instructions an agent receives when it
+        description (str | None): The discovery text a task matches its work
+            against.
+        body (str | None): The markdown instructions a task receives when it
             loads the skill.
-        is_available (bool | None): Whether the skill is served to agents.
-        operator_count (int | None): How many agents currently enable the skill.
+        is_available (bool | None): Whether the skill is served to tasks.
+        task_count (int | None): How many tasks currently enable the skill.
         created_at (datetime | None): Creation time.
         updated_at (datetime | None): Last update time.
     """
@@ -30,7 +31,7 @@ class SkillResponse(_ApiModel):
     description: str | None = None
     body: str | None = None
     is_available: bool | None = None
-    operator_count: int | None = None
+    task_count: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -49,23 +50,23 @@ class SkillDeleteResponse(_ApiModel):
 
     Attributes:
         id (UUID): The deleted skill's id.
-        operator_count (int): How many agents were unlinked from the skill.
+        task_count (int): How many tasks were unlinked from the skill.
         released_tool_count (int): How many tools the skill owned. They are not
             deleted; they become shared tools of the project.
     """
 
     id: UUID
-    operator_count: int = 0
+    task_count: int = 0
     released_tool_count: int = 0
 
 
 class _SkillsSection(_Section):
-    """Skills: named instruction packages agents load on demand.
+    """Skills: named instruction packages tasks load on demand.
 
-    Attach skills to LLM agents through the ``skill_ids`` argument of
-    ``client.operators.create`` / ``client.operators.update``. A skill can also
+    Attach skills to LLM tasks through the ``skill_ids`` argument of
+    ``client.tasks.create`` / ``client.tasks.update``. A skill can also
     own tools: pass its id as ``skill_id`` when creating a tool, and every
-    agent that enables the skill can call it.
+    task that enables the skill can call it.
     """
 
     def list(self, project_id: UUID, *, skip: int = 0, limit: int = 100) -> SkillList:
@@ -122,11 +123,11 @@ class _SkillsSection(_Section):
             project_id (UUID): Owning project.
             name (str): Display and load name; unique (case-insensitive) among
                 the project's skills.
-            description (str): The discovery text agents match tasks against.
-                Say when to use the skill, not just what it is.
-            body (str): The markdown instructions an agent receives when it
+            description (str): The discovery text a task matches its work
+                against. Say when to use the skill, not just what it is.
+            body (str): The markdown instructions a task receives when it
                 loads the skill.
-            is_available (bool): Whether the skill is served to agents.
+            is_available (bool): Whether the skill is served to tasks.
 
         Returns:
             SkillResponse: The created skill.
@@ -177,7 +178,7 @@ class _SkillsSection(_Section):
         return SkillResponse.model_validate(response.json())
 
     def delete(self, skill_id: UUID) -> SkillDeleteResponse:
-        """Delete a skill, unlinking it from every agent.
+        """Delete a skill, unlinking it from every task.
 
         Calls ``DELETE /api/skills/{skill_id}``. Tools the skill owned are not
         deleted; they become shared tools of the project.
@@ -186,7 +187,7 @@ class _SkillsSection(_Section):
             skill_id (UUID): Skill to delete.
 
         Returns:
-            SkillDeleteResponse: The deleted id, how many agents were unlinked,
+            SkillDeleteResponse: The deleted id, how many tasks were unlinked,
             and how many tools were released.
         """
         response = self._parent._request("DELETE", f"/api/skills/{skill_id}")
