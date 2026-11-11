@@ -61,7 +61,7 @@ Raised when `session.commit()` fails before the queue is empty. Adds:
 | `pending` | Resources that were not written. |
 | `cause` | The underlying exception that stopped commit. |
 
-Because the API has no rollback, `committed` items are still applied server-side. Your job is to decide what to do about `pending`.
+Because the API has no rollback, `committed` items are still applied server-side. It's up to you to decide what to do about `pending`.
 
 ```python
 from ragnerock import CommitError

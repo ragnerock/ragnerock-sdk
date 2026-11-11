@@ -2,9 +2,9 @@
 
 Python SDK and CLI for the [Ragnerock](https://ragnerock.com) API.
 
-- A SQLAlchemy-shaped **Session API** for documents, annotations, operators (agents), workflows, jobs, and SQL queries over annotations.
-- **GitOps apply** — declare secrets, provider configs, schemas, skills, agents, workflows, endpoints, and ingest configs as YAML, and apply them from the CLI or CI.
-- A **low-level client** covering the rest of the platform: agent tools and skills, notebooks and assignments, search, endpoints, ingest sources, saved queries, workflow schedules and change requests, and AI / database / blob provider configs.
+- A SQLAlchemy-shaped **Session API** for documents, document folders, annotations, tasks, agents, runs, and SQL queries over annotations.
+- **GitOps apply** — declare projects, secrets, provider configs, roles and policies, schemas, skills, tasks, agents, endpoints, and ingest configs as YAML (`apiVersion: ragnerock.com/v1alpha2`), and apply them from the CLI or CI.
+- A **low-level client** covering the rest of the platform: tools and skills, notebooks and assignments, search, endpoints, ingest sources, saved queries, agent schedules, inputs, outputs, and change requests, and AI / database / blob provider configs.
 
 ```bash
 pip install ragnerock
@@ -41,13 +41,13 @@ export RAGNEROCK_PROJECT=my_project
 ragnerock get docs                              # list documents
 ragnerock apply -f manifests/ --plan            # preview a GitOps apply
 ragnerock apply -f manifests/                   # apply it
-ragnerock run ingest --documents q1.pdf --wait  # run a workflow
+ragnerock run ingest --documents q1.pdf --wait  # run an agent
 ragnerock query "SELECT COUNT(*) FROM invoice_extract"
 ```
 
 ## Documentation
 
-The user guide and API reference live in [`docs/source/`](docs/source/index.md) — start with [Connecting](docs/source/connecting.md), [Sessions](docs/source/sessions.md), [GitOps manifests](docs/source/gitops.md), and [Platform APIs](docs/source/platform.md). Upgrading from 1.x? See [Migrating to 2.0](docs/source/migration.md). Example manifests are in [`examples/gitops/`](examples/gitops/).
+The user guide and API reference live in [`docs/source/`](docs/source/index.md) — start with [Connecting](docs/source/connecting.md), [Sessions](docs/source/sessions.md), [GitOps manifests](docs/source/gitops.md), and [Platform APIs](docs/source/platform.md). Upgrading from 2.x? Ragnerock renamed workflows to agents, operators to tasks, and jobs to runs, and 2.x can no longer talk to the API; see [Migrating to 3.0](docs/source/migration.md#migrating-to-30). From 1.x, see [Migrating to 2.0](docs/source/migration.md#migrating-to-20). Example manifests are in [`examples/gitops/`](examples/gitops/).
 
 ## Development
 
