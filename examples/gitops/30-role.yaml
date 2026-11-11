@@ -1,0 +1,9 @@
+# Role · rank 30 · account-scoped.
+# A role is a named set of people and teams. Its members are bound by the
+# RoleAssignment in `32-role-assignment.yaml`, never inline here.
+apiVersion: ragnerock.com/v1alpha2
+kind: Role
+metadata:
+  name: quant_researchers
+spec:
+  description: "Quant research team"

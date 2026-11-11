@@ -1,0 +1,16 @@
+# PolicyAssignment · rank 42 · account-scoped. `policy` references the Policy
+# above. This is the only place a policy's principals are expressed. Each
+# principal is `role:<name>`, `team:<name>` or `user:<email>`; the team and
+# user here are placeholders for ones in your account. Like a RoleAssignment,
+# it is additive.
+apiVersion: ragnerock.com/v1alpha2
+kind: PolicyAssignment
+metadata:
+  name: read_only_research_binding
+spec:
+  description: "Who read_only_research grants to"
+  policy: read_only_research
+  principals:
+    - role:quant_researchers
+    - team:research
+    - user:alice@example.com

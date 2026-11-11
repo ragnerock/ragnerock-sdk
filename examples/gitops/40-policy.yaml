@@ -1,0 +1,23 @@
+# Policy · rank 40 · account-scoped.
+# A policy grants `permissions` (IAM verbs: get, list, create, update, delete,
+# execute) on `resources`. Each resource is `<noun>/*` (every object of that
+# kind), `<noun>/<project>/<id>` with `*` for either part, or `*` for
+# everything. Nouns are the API's words: `document`, `documentfolder`, `task`,
+# `agent`, `run`, `annotation` (results), `schema`, and so on.
+# Principals are bound by the PolicyAssignment in `42-policy-assignment.yaml`,
+# never inline here.
+apiVersion: ragnerock.com/v1alpha2
+kind: Policy
+metadata:
+  name: read_only_research
+spec:
+  description: "Read access to documents, tasks, agents and their results"
+  policyVersion: "1"
+  permissions: [get, list]
+  resources:
+    - "document/*"
+    - "documentfolder/*"
+    - "task/*"
+    - "agent/*"
+    - "run/*"
+    - "annotation/*"

@@ -9,6 +9,7 @@ import pytest
 from ragnerock import Engine, create_client
 from ragnerock.errors import GitOpsError, NotFoundError
 from ragnerock.gitops import (
+    API_VERSION,
     ManifestSet,
     apply_manifests,
     key_fingerprint,
@@ -20,7 +21,7 @@ def _docs(project: str, name: str) -> list[dict[str, Any]]:
     annotations = {"ragnerock.com/project": project}
     return [
         {
-            "apiVersion": "ragnerock.com/v1alpha1",
+            "apiVersion": API_VERSION,
             "kind": "Schema",
             "metadata": {"name": f"{name}_schema", "annotations": annotations},
             "spec": {
@@ -33,9 +34,9 @@ def _docs(project: str, name: str) -> list[dict[str, Any]]:
             },
         },
         {
-            "apiVersion": "ragnerock.com/v1alpha1",
-            "kind": "Agent",
-            "metadata": {"name": f"{name}_agent", "annotations": annotations},
+            "apiVersion": API_VERSION,
+            "kind": "Task",
+            "metadata": {"name": f"{name}_task", "annotations": annotations},
             "spec": {
                 "description": "SDK integration test",
                 "generationPrompt": "Label the passage.",
@@ -58,7 +59,7 @@ def test_plan_reports_creates_and_rolls_back(
     assert report.ok, report.model_dump()
     actions = {(r.kind, r.name): r.action for r in report.results}
     assert actions[("Schema", f"{name}_schema")] == "created"
-    assert actions[("Agent", f"{name}_agent")] == "created"
+    assert actions[("Task", f"{name}_task")] == "created"
 
 
 def test_sealing_key_fingerprint_is_stable(conn_str: str) -> None:
@@ -76,7 +77,7 @@ def test_sealing_key_fingerprint_is_stable(conn_str: str) -> None:
 
 def test_plan_with_a_sealed_secret(conn_str: str, unique_name: str) -> None:
     secret = {
-        "apiVersion": "ragnerock.com/v1alpha1",
+        "apiVersion": API_VERSION,
         "kind": "Secret",
         "metadata": {"name": unique_name.replace("-", "_")},
         "spec": {"stringData": {"token": "integration-test-value"}},

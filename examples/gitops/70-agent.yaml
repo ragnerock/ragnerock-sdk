@@ -1,38 +1,38 @@
-# Workflow · rank 70 · project-scoped · foldered.
-# Each node's `agent` must reference an Agent in the same project. The first two
-# nodes use `earnings_sentiment`; the second demonstrates `dependsOn` + `condition`.
-# The third binds the *code* agent from `60-agent.yaml` — LLM and code agents are
-# nodes of the same kind of DAG and are wired identically. The first node also
-# carries a `decorators` block.
-apiVersion: ragnerock.com/v1alpha1
-kind: Workflow
+# Agent · rank 70 · project-scoped · foldered.
+# An agent is a DAG of nodes; each node's `task` must reference a Task in the
+# same project. The first two nodes use `earnings_sentiment`; the second
+# demonstrates `dependsOn` + `condition`. The third binds the *code* task from
+# `60-task.yaml` — LLM and code tasks are nodes of the same kind of DAG and are
+# wired identically. The first node also carries a `decorators` block.
+apiVersion: ragnerock.com/v1alpha2
+kind: Agent
 metadata:
   name: filing_pipeline
   annotations:
     ragnerock.com/project: alpha_research
-    ragnerock.com/folder: workflows
+    ragnerock.com/folder: agents
 spec:
   description: "End-to-end filing annotation"
   isActive: true
   autoRunOnUpload: true
   nodes:
     - name: sentiment
-      agent: earnings_sentiment
+      task: earnings_sentiment
       persist: true
       onError: retry
       maxRetries: 3
       position: {x: 100, y: 200, z: 0}
       # Node decorators wrap this node's execution.
       # They reuse the decorator YAML dialect: snake_case keys and lowercase
-      # enum tokens (like `onError: fail_job`), distinct from the camelCase of
+      # enum tokens (like `onError: fail_run`), distinct from the camelCase of
       # the surrounding node fields. An embedded `model:` binds an AI config by
-      # name within this project's account, like an agent's own `model` block.
+      # name within this project's account, like a task's own `model` block.
       decorators:
         # Invocation-global ceiling across every wrapped call (judge runs, the
-        # base operator, any retries). One per node.
+        # base task, any retries). One per node.
         - type: token_budget
           max_total_tokens: 60000
-        # Run the operator twice and, when the two disagree, have a judge pick
+        # Run the task twice and, when the two disagree, have a judge pick
         # (or merge) the most defensible result.
         - type: judge
           runs: 2
@@ -45,7 +45,7 @@ spec:
               config_name: anthropic_primary
               provider_type: anthropic
     - name: recheck
-      agent: earnings_sentiment
+      task: earnings_sentiment
       persist: true
       onError: skip_node
       dependsOn: [sentiment]
@@ -53,15 +53,16 @@ spec:
       # (field_comparison / list_operation / logical) and the whole block is
       # schema-validated, so a malformed one fails the apply instead of
       # silently leaving the node switched off forever.
-      # `fieldPath` is rooted at an upstream agent's *programmatic* name —
+      # `fieldPath` is rooted at an upstream task's *programmatic* name —
       # `earnings_sentiment` here — followed by a field of its output schema.
+      # `operator` is the comparison to apply, not a task.
       condition:
         type: field_comparison
         fieldPath: earnings_sentiment.sentiment
         operator: "=="
         value: negative
     - name: tickers
-      agent: extract_tickers
+      task: extract_tickers
       persist: true
       onError: skip_node
       position: {x: 100, y: 400, z: 0}

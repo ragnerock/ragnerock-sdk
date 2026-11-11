@@ -1,0 +1,15 @@
+# Project · rank 10 · account-scoped.
+# The `ragnerock.com/project` annotation on every project-scoped kind below
+# points at this project's name, so applying the folder creates the project
+# before anything that lives in it.
+# `owner` must be a member of your account — replace the placeholder.
+# `autoArchiveSucceededRunsAfterDays` archives a run that succeeded once it is
+# this many days old.
+apiVersion: ragnerock.com/v1alpha2
+kind: Project
+metadata:
+  name: alpha_research
+spec:
+  description: "Equity alpha research workspace"
+  autoArchiveSucceededRunsAfterDays: 30
+  owner: owner@example.com
